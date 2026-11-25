@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ComponentProps, FormEvent } from 'react'
 import { initMercadoPago, Payment, StatusScreen } from '@mercadopago/sdk-react'
 import { z } from 'zod'
@@ -65,6 +65,14 @@ async function request<T extends z.ZodType>(path: string, schema: T, options?: R
     throw new RequestError(error.success ? error.data.error : 'Não foi possível concluir a solicitação.', error.success ? error.data.donationRecorded : undefined)
   }
   return schema.parse(body)
+}
+
+// Mercado Pago Bricks unmount and recreate the form (erasing typed data) whenever a callback
+// prop changes identity. Keep one stable function that always runs the latest handler.
+function useStableHandler<A extends unknown[], R>(handler: (...args: A) => R) {
+  const latest = useRef(handler)
+  useLayoutEffect(() => { latest.current = handler })
+  return useCallback((...args: A) => latest.current(...args), [])
 }
 
 function message(error: unknown) {
@@ -148,7 +156,7 @@ function DonationModal({ item, config, donation, onSubmit, onClose, notify, noti
     setCheckoutAmount(value)
   }
 
-  const submit: ComponentProps<typeof Payment>['onSubmit'] = async ({ formData }) => {
+  const submit = useStableHandler<Parameters<NonNullable<ComponentProps<typeof Payment>['onSubmit']>>, Promise<void>>(async ({ formData }) => {
     if (submitting.current || checkoutAmount === null) return
     submitting.current = true
     setBusy(true)
@@ -158,7 +166,16 @@ function DonationModal({ item, config, donation, onSubmit, onClose, notify, noti
       submitting.current = false
       setBusy(false)
     }
-  }
+  })
+  const paymentReady = useStableHandler(() => setBrickReady(true))
+  const paymentError = useStableHandler(() => {
+    setBrickError(true)
+    notify('error', 'O formulário de pagamento apresentou um erro. Verifique os dados ou tente novamente.')
+  })
+  const statusError = useStableHandler(() => {
+    setBrickError(true)
+    notify('error', 'Não foi possível exibir os detalhes do pagamento. Feche e reabra para tentar novamente.')
+  })
   const statusText = donation?.status === 'approved' ? 'Doação confirmada. Muito obrigado!'
     : donation && terminal.has(donation.status) ? 'Este pagamento não foi concluído ou foi estornado.'
       : 'Aguardando a confirmação do pagamento'
@@ -179,8 +196,7 @@ function DonationModal({ item, config, donation, onSubmit, onClose, notify, noti
         {!terminal.has(donation.status) && <p>Se for Pix, use o código abaixo. Não faça outro pagamento enquanto aguardamos a confirmação.</p>}
         {donation.status === 'creating' && <p>Estamos verificando se o Mercado Pago recebeu a solicitação. Se a espera continuar, contate os organizadores com o identificador abaixo.</p>}
       </div>
-      {donation.paymentId && <StatusScreen initialization={statusInitialization} locale="pt-BR"
-        onError={() => { setBrickError(true); notify('error', 'Não foi possível exibir os detalhes do pagamento. Feche e reabra para tentar novamente.') }} />}
+      {donation.paymentId && <StatusScreen initialization={statusInitialization} locale="pt-BR" onError={statusError} />}
       {brickError && <p className="field-error" role="alert">Os detalhes do Mercado Pago não carregaram. Verifique sua conexão.</p>}
       <p className="reference">Identificador da doação: {donation.id}</p>
       <button className="primary full" disabled={busy} onClick={onClose}>Voltar para a lista</button>
@@ -201,8 +217,7 @@ function DonationModal({ item, config, donation, onSubmit, onClose, notify, noti
       {brickError ? <div className="callout" role="alert"><p>Não foi possível carregar o Mercado Pago. Verifique sua conexão e tente novamente.</p>
         <button className="secondary" onClick={() => { setCheckoutAmount(null); setBrickError(false); setBrickReady(false) }}>Voltar e tentar novamente</button></div>
         : <Payment initialization={initialization} customization={paymentCustomization} locale="pt-BR"
-          onSubmit={submit} onReady={() => setBrickReady(true)}
-          onError={() => { setBrickError(true); notify('error', 'O formulário de pagamento apresentou um erro. Verifique os dados ou tente novamente.') }} />}
+          onSubmit={submit} onReady={paymentReady} onError={paymentError} />}
       {busy && <p role="status">Enviando pagamento. Aguarde, por favor…</p>}
       {!busy && <button className="text-button" onClick={() => { setCheckoutAmount(null); setBrickReady(false); setBrickError(false) }}>Alterar valor</button>}
     </>}
