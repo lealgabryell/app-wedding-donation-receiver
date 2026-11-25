@@ -72,7 +72,7 @@ preserve suas credenciais. O arquivo real é ignorado pelo Git, assim como
 | --- | --- |
 | `MONGODB_URI` | URI privada do Atlas. Obrigatória no servidor. |
 | `MONGODB_DB` | Nome explícito do banco, por exemplo `wedding`. Obrigatório; aceita letras, números, `_` e `-`. |
-| `APP_ORIGIN` | Origem exata do frontend, sem barra final. Local: `http://localhost:5173`. Produção: `https://weddinglist-malu-e-gabryell.vercel.app` ou seu domínio próprio. Na Vercel exige HTTPS. |
+| `APP_ORIGIN` | Somente protocolo e domínio do frontend, sem aspas ou caminho. Espaços e uma barra final são ignorados. Local: `http://localhost:5173`. Produção: `https://weddinglist-malu-e-gabryell.vercel.app` ou seu domínio próprio. Na Vercel exige HTTPS. |
 | `MERCADO_PAGO_PUBLIC_KEY` | Public Key da aplicação Mercado Pago. Única credencial de pagamento exposta pela API pública. |
 | `MERCADO_PAGO_ACCESS_TOKEN` | Access Token privado, da mesma aplicação/conta da Public Key. |
 | `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo da assinatura configurada no painel Webhooks. |

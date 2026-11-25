@@ -47,12 +47,19 @@ export async function connectDatabase(env = process.env) {
 
 export function paymentConfig(env = process.env) {
   const vercel = env.VERCEL === '1'
-  const origin = env.APP_ORIGIN || (vercel ? '' : 'http://localhost:5173')
+  // Copy/paste often adds spaces or a trailing slash; both are harmless for an origin.
+  const raw = (env.APP_ORIGIN ?? '').trim() || (vercel ? '' : 'http://localhost:5173')
+  const invalid = (reason) => new ConfigurationError(`APP_ORIGIN inválida: ${reason} Exemplo: https://seu-dominio.vercel.app`)
+  if (!raw) throw invalid('variável ausente ou vazia.')
+  if (/^["']|["']$/.test(raw)) throw invalid('remova as aspas do valor.')
   let url
-  try { url = new URL(origin) } catch { throw new ConfigurationError('Configure APP_ORIGIN com a origem do frontend.') }
-  if (url.origin !== origin || !['http:', 'https:'].includes(url.protocol) || (vercel && url.protocol !== 'https:')) {
-    throw new ConfigurationError('APP_ORIGIN deve ser uma origem válida, sem caminho ou barra final; na Vercel, use HTTPS.')
+  try { url = new URL(raw) } catch { throw invalid('não é uma URL; inclua o protocolo https://.') }
+  if (!['http:', 'https:'].includes(url.protocol)) throw invalid('use http:// ou https://.')
+  if (vercel && url.protocol !== 'https:') throw invalid('na Vercel, use https://.')
+  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw invalid('informe somente protocolo e domínio, sem caminho, parâmetros ou credenciais.')
   }
+  const origin = url.origin
   const notificationUrl = env.MERCADO_PAGO_NOTIFICATION_URL ?? ''
   if (notificationUrl) {
     let notification
