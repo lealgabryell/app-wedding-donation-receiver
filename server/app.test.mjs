@@ -5,12 +5,14 @@ import { once } from 'node:events'
 import { createApp, errorHandler } from './app.mjs'
 import { createPaymentService } from './payments.mjs'
 import { fixture, paymentFor } from './test-helpers.mjs'
+import { MongoRateLimitStore } from './rate-limit.mjs'
 
 async function setup(t, overrides = {}) {
-  const { store } = await fixture(t)
+  const { store, db } = await fixture(t)
   const config = {
     origin: 'http://localhost:5173', publicKey: 'public-test', accessToken: 'private-test',
-    webhookSecret: 'webhook-test', notificationUrl: 'https://example.test/webhook', ...overrides,
+    webhookSecret: 'webhook-test', notificationUrl: 'https://example.test/webhook',
+    cronSecret: 'cron-test', ...overrides,
   }
   let payment
   const gateway = {
@@ -18,7 +20,10 @@ async function setup(t, overrides = {}) {
     async get() { return payment },
   }
   const service = createPaymentService(store, gateway)
-  const app = createApp({ store, config, gateway, service })
+  const app = createApp({
+    store, config, gateway, service,
+    rateLimitStore: (prefix) => new MongoRateLimitStore(db.collection('rateLimits'), prefix),
+  })
   app.use(errorHandler)
   const server = app.listen(0, '127.0.0.1')
   await once(server, 'listening')
@@ -57,7 +62,7 @@ test('API cria Pix, valida webhook, confirma pagamento e publica apenas catálog
   assert.equal(JSON.stringify(items).includes('payer'), false)
 })
 
-test('origem inválida, valor inválido e webhook sem assinatura não alteram o JSON', async (t) => {
+test('origem inválida, valor inválido e webhook sem assinatura não alteram os dados', async (t) => {
   const { store, url, post, input } = await setup(t)
   const unauthorized = await post(input, 'https://other.example.test')
   assert.equal(unauthorized.status, 403)
@@ -66,8 +71,8 @@ test('origem inválida, valor inválido e webhook sem assinatura não alteram o 
   assert.equal((await post({ ...input, amount: 0.001 })).status, 400)
   assert.equal((await post({ ...input, amount: 901 })).status, 409)
   assert.equal((await fetch(`${url}/api/webhooks/mercadopago?data.id=123456`, { method: 'POST' })).status, 401)
-  assert.equal(store.read().donations.length, 0)
-  assert.equal(store.read().items[0].remainingValue, 900)
+  assert.equal((await store.read()).donations.length, 0)
+  assert.equal((await store.read()).items[0].remainingValue, 900)
 })
 
 test('sem credenciais catálogo continua disponível e pagamentos são explicitamente desabilitados', async (t) => {
@@ -75,4 +80,55 @@ test('sem credenciais catálogo continua disponível e pagamentos são explicita
   assert.equal((await fetch(`${url}/api/items`)).status, 200)
   assert.equal((await (await fetch(`${url}/api/config`)).json()).paymentsEnabled, false)
   assert.equal((await post()).status, 503)
+})
+
+test('rotas desconhecidas retornam JSON e não expõem arquivos nem credenciais', async (t) => {
+  const { url } = await setup(t)
+  const response = await fetch(`${url}/api/not-found`)
+  assert.equal(response.status, 404)
+  assert.match(response.headers.get('content-type'), /application\/json/)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(await response.json(), { error: 'Endereço não encontrado.' })
+  const config = await (await fetch(`${url}/api/config`)).text()
+  for (const secret of ['private-test', 'cron-test', 'webhook-test', 'MONGODB_URI']) {
+    assert.equal(config.includes(secret), false)
+  }
+})
+
+test('cron exige segredo, reconcilia pendências e informa falhas sem repetir cobranças', async (t) => {
+  const { url, post, getPayment, store } = await setup(t)
+  const cron = (authorization) => fetch(`${url}/api/cron/reconcile`, {
+    headers: authorization ? { authorization } : {},
+  })
+  assert.equal((await cron()).status, 401)
+  assert.equal((await cron('Bearer wrong')).status, 401)
+  await post()
+  getPayment().status = 'approved'
+  const response = await cron('Bearer cron-test')
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { checked: 1, failed: 0 })
+  assert.equal((await store.read()).items[0].donatedValue, 150)
+  getPayment().transaction_amount = 999
+  const failed = await cron('Bearer cron-test')
+  assert.equal(failed.status, 503)
+  assert.deepEqual(await failed.json(), { checked: 1, failed: 1 })
+  assert.equal((await store.read()).items[0].donatedValue, 150)
+})
+
+test('limite de criação bloqueia a 11ª tentativa e não registra doação inválida', async (t) => {
+  const { post, store } = await setup(t)
+  for (let count = 0; count < 10; count++) assert.equal((await post({})).status, 400)
+  const limited = await post({})
+  assert.equal(limited.status, 429)
+  assert.equal((await limited.json()).donationRecorded, false)
+  assert.equal((await store.read()).donations.length, 0)
+})
+
+test('entrada inválida não pode transformar identificador em consulta MongoDB', async (t) => {
+  const { post, input, store } = await setup(t)
+  await post()
+  const response = await post({ ...input, id: { $ne: null } })
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).donationRecorded, false)
+  assert.equal((await store.read()).donations.length, 1)
 })

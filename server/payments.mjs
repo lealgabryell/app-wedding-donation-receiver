@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { cents } from './store.mjs'
+import { cents } from './model.mjs'
 
 export class AppError extends Error {
   constructor(status, message) {
@@ -76,13 +76,21 @@ export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
 export function createPaymentService(store, gateway) {
   const inFlight = new Set()
   async function applyPayment(payment) {
-    return store.update((db) => {
+    const recorded = await store.findDonation(payment.external_reference)
+    if (!recorded) return null
+    return store.update(recorded.itemId, (db) => {
       const donation = db.donations.find((entry) => entry.id === payment.external_reference)
       if (!donation) return null
       if (!payment.id || payment.currency_id !== 'BRL' ||
           cents(payment.transaction_amount) !== cents(donation.amount) ||
           (donation.paymentId && donation.paymentId !== String(payment.id))) {
         throw new AppError(502, 'Os dados do pagamento não correspondem à doação.')
+      }
+      if (!Number.isFinite(Date.parse(payment.date_last_updated))) {
+        throw new AppError(502, 'O pagamento não possui uma data de atualização válida.')
+      }
+      if (donation.paymentUpdatedAt && Date.parse(payment.date_last_updated) < Date.parse(donation.paymentUpdatedAt)) {
+        return { ...donation }
       }
       const item = db.items.find((entry) => entry.id === donation.itemId)
       const credited = payment.status === 'approved'
@@ -98,11 +106,12 @@ export function createPaymentService(store, gateway) {
       donation.creditedCents = credited
       donation.status = payment.status
       donation.paymentId = String(payment.id)
+      donation.paymentUpdatedAt = new Date(payment.date_last_updated).toISOString()
       return { ...donation }
     })
   }
   async function reconcile(id) {
-    const donation = store.read().donations.find((entry) => entry.id === id)
+    const donation = await store.findDonation(id)
     if (!donation) throw new AppError(404, 'Doação não encontrada.')
     if (donation.status === 'rejected' && !donation.paymentId) return donation
     const payment = donation.paymentId ? await gateway.get(donation.paymentId) : await gateway.find(id)
@@ -111,36 +120,74 @@ export function createPaymentService(store, gateway) {
   return {
     applyPayment,
     reconcile,
+    async reconcileBatch() {
+      const batch = await store.reconciliationBatch()
+      const results = await Promise.all(batch.map(async (donation) => {
+        let success = true
+        try {
+          await reconcile(donation.id)
+        } catch (error) {
+          console.error('Falha ao reconciliar doação:', donation.id, error.name)
+          success = false
+        }
+        try {
+          await store.markReconciled(donation.id)
+        } catch (error) {
+          console.error('Falha ao registrar reconciliação:', donation.id, error.name)
+          success = false
+        }
+        return success
+      }))
+      return { checked: results.length, failed: results.filter((success) => !success).length }
+    },
     async create({ id, itemId, amount, form }) {
       if (inFlight.has(id)) throw new AppError(409, 'Seu pagamento já está sendo enviado. Aguarde.')
       inFlight.add(id)
       try {
-        const existing = store.read().donations.find((entry) => entry.id === id)
+        const existing = await store.findDonation(id)
         if (existing) {
           if (existing.itemId !== itemId || cents(existing.amount) !== cents(amount)) {
             throw new AppError(409, 'Esta tentativa já está associada a outra doação.')
           }
           return await reconcile(id)
         }
-        const donation = await store.update((db) => {
-          const item = db.items.find((entry) => entry.id === itemId)
-          if (!item) throw new AppError(404, 'Presente não encontrado.')
-          if (cents(amount) > availableCents(db, item)) {
-            throw new AppError(409, 'Este valor não está mais disponível. Atualize a lista e escolha outro valor.')
+        let reservation
+        try {
+          reservation = await store.update(itemId, (db) => {
+            const previous = db.donations.find((entry) => entry.id === id)
+            if (previous) {
+              if (previous.itemId !== itemId || cents(previous.amount) !== cents(amount)) {
+                throw new AppError(409, 'Esta tentativa já está associada a outra doação.')
+              }
+              return { donation: { ...previous }, created: false }
+            }
+            const item = db.items.find((entry) => entry.id === itemId)
+            if (!item) throw new AppError(404, 'Presente não encontrado.')
+            if (cents(amount) > availableCents(db, item)) {
+              throw new AppError(409, 'Este valor não está mais disponível. Atualize a lista e escolha outro valor.')
+            }
+            const entry = { id, itemId, amount, status: 'creating', creditedCents: 0, createdAt: new Date().toISOString() }
+            db.donations.push(entry)
+            return { donation: { ...entry }, created: true, item: { ...item } }
+          })
+        } catch (error) {
+          if (error.code !== 11000) throw error
+          const duplicate = await store.findDonation(id)
+          if (!duplicate || duplicate.itemId !== itemId || cents(duplicate.amount) !== cents(amount)) {
+            throw new AppError(409, 'Esta tentativa já está associada a outra doação.')
           }
-          const entry = { id, itemId, amount, status: 'creating', creditedCents: 0, createdAt: new Date().toISOString() }
-          db.donations.push(entry)
-          return entry
-        })
-        const item = store.read().items.find((entry) => entry.id === itemId)
+          return reconcile(id)
+        }
+        if (!reservation.created) return reconcile(id)
+        const { donation, item } = reservation
         try {
           const payment = await gateway.create(donation, item, form)
           return await applyPayment(payment)
         } catch (error) {
           if (error.definitive) {
-            await store.update((db) => {
+            await store.update(itemId, (db) => {
               const entry = db.donations.find((candidate) => candidate.id === id)
-              entry.status = 'rejected'
+              if (!entry.paymentId && entry.status === 'creating') entry.status = 'rejected'
             })
           }
           throw error

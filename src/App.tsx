@@ -54,7 +54,12 @@ async function request<T extends z.ZodType>(path: string, schema: T, options?: R
   } catch {
     throw new Error('Não foi possível comunicar com o servidor. Verifique sua conexão e consulte o andamento antes de tentar pagar novamente.')
   }
-  const body: unknown = await response.json()
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch {
+    throw new RequestError(`O servidor retornou uma resposta inválida (HTTP ${response.status}). Tente novamente em instantes; se houver um pagamento em andamento, consulte seu status antes de pagar novamente.`)
+  }
   if (!response.ok) {
     const error = z.object({ error: z.string(), donationRecorded: z.boolean().optional() }).safeParse(body)
     throw new RequestError(error.success ? error.data.error : 'Não foi possível concluir a solicitação.', error.success ? error.data.donationRecorded : undefined)

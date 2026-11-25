@@ -2,6 +2,7 @@ import express from 'express'
 import helmet from 'helmet'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { timingSafeEqual } from 'node:crypto'
 import { AppError, publicItems, verifySignature } from './payments.mjs'
 
 const submissionSchema = z.object({
@@ -30,9 +31,10 @@ const publicDonation = (donation) => ({
   paymentId: donation.paymentId,
 })
 
-export function createApp({ store, service, gateway, config }) {
+export function createApp({ store, service, gateway, config, rateLimitStore }) {
   const app = express()
   app.disable('x-powered-by')
+  if (config.vercel) app.set('trust proxy', 1)
   // Bricks loads its own scripts and payment frames. Do not block them with Helmet's default CSP.
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
   app.use(express.json({ limit: '20kb' }))
@@ -44,10 +46,11 @@ export function createApp({ store, service, gateway, config }) {
     publicKey: config.publicKey,
     paymentsEnabled: Boolean(config.publicKey && config.accessToken && config.webhookSecret && config.notificationUrl),
   }))
-  app.get('/api/items', (_req, res) => res.json(publicItems(store.read())))
+  app.get('/api/items', async (_req, res) => res.json(publicItems(await store.read())))
 
   app.post('/api/donations', rateLimit({
     windowMs: 60000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false,
+    store: rateLimitStore?.('create'),
     message: { error: 'Muitas tentativas. Aguarde um minuto antes de tentar novamente.', donationRecorded: false },
   }), async (req, res) => {
     if (req.get('origin') !== config.origin) throw new AppError(403, 'Origem da requisição não autorizada.')
@@ -61,6 +64,7 @@ export function createApp({ store, service, gateway, config }) {
 
   app.get('/api/donations/:id', rateLimit({
     windowMs: 60000, limit: 90, legacyHeaders: false, standardHeaders: 'draft-8',
+    store: rateLimitStore?.('status'),
     message: { error: 'Muitas consultas. Aguarde um minuto.' },
   }), async (req, res) => {
     if (!z.uuid().safeParse(req.params.id).success) throw new AppError(400, 'Identificador de doação inválido.')
@@ -73,14 +77,32 @@ export function createApp({ store, service, gateway, config }) {
       signature: req.get('x-signature'), requestId: req.get('x-request-id'),
       dataId, secret: config.webhookSecret,
     })) throw new AppError(401, 'Notificação não autenticada.')
-    if (req.body.type !== 'payment') throw new AppError(400, 'Tipo de notificação não suportado.')
+    if (req.body?.type !== 'payment') throw new AppError(400, 'Tipo de notificação não suportado.')
     await service.applyPayment(await gateway.get(dataId))
     res.sendStatus(200)
   })
 
-  app.use((error, req, _res, next) => {
+  app.get('/api/cron/reconcile', async (req, res) => {
+    if (!config.cronSecret) throw new AppError(503, 'A reconciliação agendada não foi configurada.')
+    const expected = Buffer.from(`Bearer ${config.cronSecret}`)
+    const supplied = Buffer.from(req.get('authorization') ?? '')
+    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+      throw new AppError(401, 'Agendamento não autenticado.')
+    }
+    if (!config.accessToken) throw new AppError(503, 'O acesso ao provedor de pagamentos não foi configurado.')
+    const result = await service.reconcileBatch()
+    res.status(result.failed ? 503 : 200).json(result)
+  })
+
+  app.use('/api', (_req, res) => res.status(404).json({ error: 'Endereço não encontrado.' }))
+  app.use(async (error, req, _res, next) => {
     if (req.method === 'POST' && req.path === '/api/donations') {
-      error.donationRecorded = store.read().donations.some((donation) => donation.id === req.body?.id)
+      try {
+        error.donationRecorded = z.uuid().safeParse(req.body?.id).success
+          ? Boolean(await store.findDonation(req.body.id)) : false
+      } catch (lookupError) {
+        console.error('Falha ao consultar registro da doação:', lookupError.name)
+      }
     }
     next(error)
   })

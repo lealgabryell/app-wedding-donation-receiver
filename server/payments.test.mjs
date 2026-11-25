@@ -1,12 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHmac, randomUUID } from 'node:crypto'
-import { createStore } from './store.mjs'
 import { createGateway, createPaymentService, publicItems, verifySignature } from './payments.mjs'
 import { fixture, paymentFor } from './test-helpers.mjs'
 
 test('aprovação atualiza valores em centavos e repetição não contabiliza duas vezes', async (t) => {
-  const { store, file, seed } = await fixture(t)
+  const { store, reopen } = await fixture(t)
   let calls = 0
   let payment
   const gateway = {
@@ -18,7 +17,7 @@ test('aprovação atualiza valores em centavos e repetição não contabiliza du
   await service.create(input)
   await service.create(input)
   await service.applyPayment(payment)
-  const item = (await createStore(file, seed)).read().items[0]
+  const item = (await (await reopen()).read()).items[0]
   assert.equal(calls, 1)
   assert.equal(item.donatedValue, 125.37)
   assert.equal(item.remainingValue, 874.63)
@@ -32,27 +31,28 @@ test('Pix pendente reserva saldo sem alterar o progresso; webhook aprova e estor
     async get() { return payment },
   })
   const donation = await service.create({ id: randomUUID(), itemId: 1, amount: 100, form: {} })
-  assert.equal(publicItems(store.read())[0].availableValue, 800)
-  assert.equal(store.read().items[0].donatedValue, 100)
+  assert.equal(publicItems(await store.read())[0].availableValue, 800)
+  assert.equal((await store.read()).items[0].donatedValue, 100)
   payment.status = 'approved'
   await service.reconcile(donation.id)
-  assert.equal(store.read().items[0].donatedValue, 200)
+  assert.equal((await store.read()).items[0].donatedValue, 200)
   await service.applyPayment({ ...payment, status: 'refunded' })
   await service.applyPayment({ ...payment, status: 'refunded' })
-  assert.equal(store.read().items[0].donatedValue, 100)
-  assert.equal(store.read().items[0].remainingValue, 900)
+  assert.equal((await store.read()).items[0].donatedValue, 100)
+  assert.equal((await store.read()).items[0].remainingValue, 900)
 })
 
 test('doações concorrentes não podem ultrapassar o saldo do presente', async (t) => {
-  const { store } = await fixture(t)
-  const service = createPaymentService(store, {
+  const { store, reopen } = await fixture(t)
+  const gateway = {
     async create(donation) { return paymentFor(donation, { status: 'pending', id: donation.id }) },
-  })
-  const results = await Promise.allSettled([1, 2].map(() =>
+  }
+  const services = [createPaymentService(store, gateway), createPaymentService(await reopen(), gateway)]
+  const results = await Promise.allSettled(services.map((service) =>
     service.create({ id: randomUUID(), itemId: 1, amount: 600, form: {} })))
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
-  assert.equal(store.read().donations.length, 1)
-  assert.equal(publicItems(store.read())[0].availableValue, 300)
+  assert.equal((await store.read()).donations.length, 1)
+  assert.equal(publicItems(await store.read())[0].availableValue, 300)
 })
 
 test('estorno parcial reabre somente o valor estornado para novas doações', async (t) => {
@@ -64,23 +64,23 @@ test('estorno parcial reabre somente o valor estornado para novas doações', as
   await service.create({ id: randomUUID(), itemId: 1, amount: 100, form: {} })
   await service.applyPayment({ ...payment, transaction_amount_refunded: 25.25 })
   await service.applyPayment({ ...payment, transaction_amount_refunded: 25.25 })
-  assert.equal(store.read().items[0].donatedValue, 174.75)
-  assert.equal(store.read().items[0].remainingValue, 825.25)
-  assert.equal(publicItems(store.read())[0].availableValue, 825.25)
+  assert.equal((await store.read()).items[0].donatedValue, 174.75)
+  assert.equal((await store.read()).items[0].remainingValue, 825.25)
+  assert.equal(publicItems(await store.read())[0].availableValue, 825.25)
 })
 
 test('falha ambígua mantém reserva e recupera aprovação após reiniciar sem criar nova cobrança', async (t) => {
-  const { store, file, seed } = await fixture(t)
+  const { store, reopen } = await fixture(t)
   let recordedPayment
   const input = { id: randomUUID(), itemId: 1, amount: 99, form: {} }
   await assert.rejects(createPaymentService(store, {
     async create(donation) { recordedPayment = paymentFor(donation); throw new Error('timeout') },
   }).create(input), /timeout/)
-  assert.equal(publicItems(store.read())[0].availableValue, 801)
-  const reopened = await createStore(file, seed)
+  assert.equal(publicItems(await store.read())[0].availableValue, 801)
+  const reopened = await reopen()
   const service = createPaymentService(reopened, { async find() { return recordedPayment } })
   await service.create(input)
-  assert.equal(reopened.read().items[0].donatedValue, 199)
+  assert.equal((await reopened.read()).items[0].donatedValue, 199)
 })
 
 test('valores ou moeda divergentes nunca alteram o saldo', async (t) => {
@@ -91,7 +91,7 @@ test('valores ou moeda divergentes nunca alteram o saldo', async (t) => {
   const id = randomUUID()
   await assert.rejects(service.create({ id, itemId: 1, amount: 20, form: {} }), /não correspondem/)
   await assert.rejects(service.applyPayment(paymentFor({ id, amount: 20 }, { currency_id: 'USD' })), /não correspondem/)
-  assert.equal(store.read().items[0].donatedValue, 100)
+  assert.equal((await store.read()).items[0].donatedValue, 100)
 })
 
 test('recusa definitiva libera a reserva, mas erro de rede não gera cobrança automática adicional', async (t) => {
@@ -101,7 +101,7 @@ test('recusa definitiva libera a reserva, mas erro de rede não gera cobrança a
   const id = randomUUID()
   await assert.rejects(service.create({ id, itemId: 1, amount: 10, form: {} }))
   assert.equal((await service.reconcile(id)).status, 'rejected')
-  assert.equal(publicItems(store.read())[0].availableValue, 900)
+  assert.equal(publicItems(await store.read())[0].availableValue, 900)
 })
 
 test('assinatura válida é aceita e adulterações são recusadas', () => {
@@ -127,4 +127,59 @@ test('gateway define valor, referência e idempotência a partir dos dados do se
   await gateway.create(donation, { itemName: 'Flores' }, {
     transaction_amount: 999, external_reference: 'forged', notification_url: 'https://other.example.test',
   })
+})
+
+test('o mesmo UUID enviado a instâncias distintas não cria duas cobranças', async (t) => {
+    const { store, reopen } = await fixture(t)
+    let calls = 0
+    let payment
+    const gateway = {
+      async create(donation) {
+        calls++
+        payment = paymentFor(donation)
+        return payment
+      },
+      async get() { return payment },
+      async find() { return payment },
+    }
+    const input = { id: randomUUID(), itemId: 1, amount: 25, form: {} }
+    const services = [createPaymentService(store, gateway), createPaymentService(await reopen(), gateway)]
+    await Promise.all(services.map((service) => service.create(input)))
+    assert.equal(calls, 1)
+    assert.equal((await store.read()).donations.length, 1)
+    assert.equal((await store.read()).items[0].donatedValue, 125)
+    await assert.rejects(services[1].create({ ...input, itemId: 2 }), /já está associada/)
+})
+
+test('webhooks concorrentes contabilizam uma vez e respostas antigas não desfazem estornos', async (t) => {
+    const { store, reopen } = await fixture(t)
+    let payment
+    const service = createPaymentService(store, {
+      async create(donation) { payment = paymentFor(donation, { status: 'pending' }); return payment },
+    })
+    const other = createPaymentService(await reopen(), {})
+    await service.create({ id: randomUUID(), itemId: 1, amount: 100, form: {} })
+    const approved = { ...payment, status: 'approved', date_last_updated: '2026-01-02T12:00:00.000Z' }
+    await Promise.all([service.applyPayment(approved), other.applyPayment(approved)])
+    assert.equal((await store.read()).items[0].donatedValue, 200)
+    await other.applyPayment({ ...approved, status: 'refunded', date_last_updated: '2026-01-03T12:00:00.000Z' })
+    await service.applyPayment(approved)
+    assert.equal((await store.read()).items[0].donatedValue, 100)
+    assert.equal((await store.findDonation(payment.external_reference)).status, 'refunded')
+})
+
+test('reconciliação trabalha em lotes e avança sem abandonar pagamentos antigos', async (t) => {
+    const { store } = await fixture(t)
+    const visited = []
+    for (let index = 0; index < 7; index++) {
+      await store.update(1, (db) => db.donations.push({
+        id: randomUUID(), itemId: 1, amount: 1, status: 'creating', creditedCents: 0,
+        createdAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+      }))
+    }
+    const service = createPaymentService(store, { async find(id) { visited.push(id); return undefined } })
+    assert.deepEqual(await service.reconcileBatch(), { checked: 5, failed: 0 })
+    assert.deepEqual(await service.reconcileBatch(), { checked: 5, failed: 0 })
+    assert.equal(new Set(visited).size, 7)
+    assert.equal((await store.read()).donations.length, 7)
 })
