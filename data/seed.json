@@ -1,0 +1,71 @@
+{
+  "items": [
+    {
+      "id": 1,
+      "itemName": "Flores da cerimônia",
+      "totalPrice": 1000,
+      "donatedValue": 500,
+      "remainingValue": 500,
+      "description": "Um caminho de flores para o nosso sim. Arranjos para a entrada e o altar da cerimônia.",
+      "itemProvider": "Flores S.A.",
+      "pictureUrl": "/images/flowers.svg",
+      "category": "Cerimônia"
+    },
+    {
+      "id": 2,
+      "itemName": "Bolo de casamento",
+      "totalPrice": 850,
+      "donatedValue": 0,
+      "remainingValue": 850,
+      "description": "Para adoçar a nossa história e dividir esse momento com quem a gente ama.",
+      "itemProvider": "Fornecedor a definir",
+      "pictureUrl": "/images/cake.svg",
+      "category": "Festa"
+    },
+    {
+      "id": 3,
+      "itemName": "Mesa dos convidados",
+      "totalPrice": 1800,
+      "donatedValue": 0,
+      "remainingValue": 1800,
+      "description": "Uma mesa acolhedora, cheia de carinho e de boas conversas para celebrar juntos.",
+      "itemProvider": "Fornecedor a definir",
+      "pictureUrl": "/images/table.svg",
+      "category": "Festa"
+    },
+    {
+      "id": 4,
+      "itemName": "Música para o nosso sim",
+      "totalPrice": 1500,
+      "donatedValue": 0,
+      "remainingValue": 1500,
+      "description": "A trilha sonora da cerimônia, da entrada até aquele abraço depois do sim.",
+      "itemProvider": "Fornecedor a definir",
+      "pictureUrl": "/images/music.svg",
+      "category": "Cerimônia"
+    },
+    {
+      "id": 5,
+      "itemName": "Docinhos da festa",
+      "totalPrice": 650,
+      "donatedValue": 0,
+      "remainingValue": 650,
+      "description": "Pequenas doçuras para acompanhar os sorrisos e tornar a festa ainda mais especial.",
+      "itemProvider": "Fornecedor a definir",
+      "pictureUrl": "/images/sweets.svg",
+      "category": "Festa"
+    },
+    {
+      "id": 6,
+      "itemName": "Lembranças com carinho",
+      "totalPrice": 500,
+      "donatedValue": 0,
+      "remainingValue": 500,
+      "description": "Um pedacinho desse dia para cada convidado levar para casa e guardar com amor.",
+      "itemProvider": "Fornecedor a definir",
+      "pictureUrl": "/images/gifts.svg",
+      "category": "Festa"
+    }
+  ],
+  "donations": []
+}

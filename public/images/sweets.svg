@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360">
+  <rect width="600" height="360" fill="#eee2db"/><ellipse cx="300" cy="277" rx="180" ry="39" fill="#dfcec0"/><ellipse cx="300" cy="261" rx="173" ry="39" fill="#f9f4e9" stroke="#c4af8d" stroke-width="3"/><ellipse cx="300" cy="258" rx="153" ry="28" fill="none" stroke="#e5d8bf" stroke-width="2"/>
+  <g fill="#bc9277"><circle cx="213" cy="211" r="27"/><circle cx="294" cy="180" r="27"/><circle cx="378" cy="210" r="27"/></g><g fill="#795847"><circle cx="255" cy="245" r="26"/><circle cx="340" cy="245" r="26"/></g>
+  <g fill="#e6c6ae"><path d="m181 217 12 27h39l12-27-13 9-12-9-13 9-12-9Z"/><path d="m262 186 12 27h39l12-27-13 9-12-9-13 9-12-9Z"/><path d="m346 216 12 27h39l12-27-13 9-12-9-13 9-12-9Z"/></g><g fill="#bba181"><path d="m223 251 12 27h39l12-27-13 9-12-9-13 9-12-9Z"/><path d="m308 251 12 27h39l12-27-13 9-12-9-13 9-12-9Z"/></g>
+  <g stroke="#f1dbc7" stroke-width="3" stroke-linecap="round"><path d="m202 200 4 5m10-9 5 4m-15 13 5-2m73-40 5 4m10-9 4 5m-8 12 5-2m68 20 4 5m10-9 5 4m-15 13 5-2m-135 29 4 4m11-10 5 3m70 4 4 4m11-9 5 3"/></g>
+</svg>
