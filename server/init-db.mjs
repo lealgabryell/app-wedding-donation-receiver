@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { connectDatabase } from './config.mjs'
+import { connectDatabase, startupDiagnosis } from './config.mjs'
 import { initializeDatabase } from './store.mjs'
 
 async function main() {
@@ -21,8 +21,6 @@ async function main() {
 
 main().catch((error) => {
   // Driver messages may contain connection details. Never print the URI or raw driver errors.
-  console.error('Falha ao inicializar o banco:', ['MongoServerError', 'MongoServerSelectionError', 'MongoParseError'].includes(error.name)
-    ? `${error.name}. Confira conexão, permissões e dados existentes.`
-    : error.name === 'Error' ? error.message : error.name)
+  console.error('Falha ao inicializar o banco:', error.name === 'Error' ? error.message : startupDiagnosis(error))
   process.exitCode = 1
 })

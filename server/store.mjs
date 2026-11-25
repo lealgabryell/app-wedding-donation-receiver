@@ -1,4 +1,5 @@
 import { databaseSchema } from './model.mjs'
+import { ConfigurationError } from './config.mjs'
 
 const transactionOptions = {
   readConcern: { level: 'snapshot' },
@@ -35,7 +36,9 @@ export async function initializeDatabase(client, db, input) {
 
 export async function createStore(client, db) {
   const metadata = await db.collection('metadata').findOne({ _id: 'catalog' })
-  if (metadata?.version !== 1) throw new Error('Banco não inicializado ou versão incompatível. Execute npm run db:init.')
+  if (metadata?.version !== 1) {
+    throw new ConfigurationError('Banco não inicializado ou versão incompatível. Confira MONGODB_DB e execute npm run db:init.')
+  }
   const items = db.collection('items')
   const donations = db.collection('donations')
   async function transaction(action) {

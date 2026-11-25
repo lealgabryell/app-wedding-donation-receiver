@@ -325,7 +325,7 @@ o webhook e que o agendador autorizado consiga alcançar a função.
 | Sintoma | Verificação |
 | --- | --- |
 | `/api/items` retorna página 404 em texto | Confirme que o commit contém `api/index.js` e `vercel.json`, que a raiz do projeto está correta e que ocorreu um novo deploy, não somente upload de `dist`. |
-| API retorna 503 na primeira chamada | Revise variáveis, usuário/senha, rede Atlas e execução prévia de `db:init`. Veja os logs da função; não publique credenciais para depurar. |
+| API retorna 503 na primeira chamada | Abra **Vercel → Logs** e procure `Falha ao iniciar API:`. A linha indica a causa sem expor credenciais: variável ausente/inválida (`MONGODB_URI`, `MONGODB_DB`, `APP_ORIGIN`), cluster inacessível (libere a Vercel em **Atlas → Network Access**), autenticação recusada (usuário/senha da URI) ou banco não inicializado (`MONGODB_DB` diferente do usado no `db:init`). Corrija e faça **redeploy**. |
 | Transação não suportada | O MongoDB deve estar em replica set; use Atlas ou configure seu ambiente local. |
 | HTTP 403 ao doar | O `Origin` do navegador deve coincidir exatamente com `APP_ORIGIN`; faça redeploy após corrigir a variável. |
 | Pagamentos desabilitados | Configure as quatro variáveis Mercado Pago e faça redeploy. |

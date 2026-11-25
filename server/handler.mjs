@@ -1,5 +1,6 @@
 import { createRuntime } from './runtime.mjs'
 import { errorHandler } from './app.mjs'
+import { startupDiagnosis } from './config.mjs'
 
 export function createHandler(loadRuntime = createRuntime) {
   let pending
@@ -15,7 +16,7 @@ export function createHandler(loadRuntime = createRuntime) {
       const app = await pending
       app(req, res)
     } catch (error) {
-      console.error('Falha ao iniciar API:', error.name)
+      console.error('Falha ao iniciar API:', startupDiagnosis(error))
       res.setHeader('Cache-Control', 'no-store')
       res.statusCode = 503
       res.setHeader('Content-Type', 'application/json; charset=utf-8')

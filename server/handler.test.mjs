@@ -62,6 +62,30 @@ test('falha de inicialização retorna JSON sem segredo e permite uma nova tenta
   assert.equal(starts, 2)
 })
 
+test('falha de inicialização registra causa acionável no log sem expor URI ou senha', async (t) => {
+  const { uri, db } = await fixture(t)
+  const logs = []
+  t.mock.method(console, 'error', (...args) => logs.push(args.join(' ')))
+  const secretError = Object.assign(new Error('mongodb+srv://username:secret@private-host'), { name: 'MongoServerSelectionError' })
+  const authError = Object.assign(new Error('bad auth secret'), { name: 'MongoServerError', code: 8000 })
+  const failures = [
+    secretError,
+    authError,
+    () => createRuntime({ MONGODB_URI: uri, MONGODB_DB: `${db.databaseName}-vazio`, APP_ORIGIN: 'https://example.test', VERCEL: '1' }),
+    () => createRuntime({ MONGODB_URI: uri, MONGODB_DB: db.databaseName, VERCEL: '1' }),
+  ]
+  for (const failure of failures) {
+    const url = await serve(t, createHandler(async () => { if (typeof failure === 'function') return failure(); throw failure }))
+    assert.equal((await fetch(`${url}/api/items`)).status, 503)
+  }
+  const output = logs.join('\n')
+  assert.match(output, /Network Access/)
+  assert.match(output, /autenticação recusada/)
+  assert.match(output, /Banco não inicializado.*MONGODB_DB/)
+  assert.match(output, /APP_ORIGIN/)
+  for (const leaked of ['secret', 'private-host', 'username', uri]) assert.equal(output.includes(leaked), false)
+})
+
 test('configuração exige MongoDB e origem HTTPS explícita na Vercel, sem expor URI nos erros', () => {
   assert.throws(() => databaseConfig({}), /MONGODB_URI/)
   assert.throws(() => databaseConfig({ MONGODB_URI: 'mongodb://private', MONGODB_DB: 'invalid/name' }), /MONGODB_DB/)
