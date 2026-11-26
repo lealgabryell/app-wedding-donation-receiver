@@ -1,6 +1,7 @@
 import { connectDatabase, paymentConfig } from './config.mjs'
 import { createStore } from './store.mjs'
-import { createGateway, createPaymentService } from './payments.mjs'
+import { createPaymentService } from './payments.mjs'
+import { createOrdersGateway } from './mercadopago.mjs'
 import { createApp } from './app.mjs'
 import { MongoRateLimitStore } from './rate-limit.mjs'
 
@@ -9,7 +10,7 @@ export async function createRuntime(env = process.env) {
   const { client, db } = await connectDatabase(env)
   try {
     const store = await createStore(client, db)
-    const gateway = createGateway(config.accessToken, config.notificationUrl)
+    const gateway = createOrdersGateway(config.accessToken)
     const service = createPaymentService(store, gateway)
     const app = createApp({
       store, gateway, service, config,

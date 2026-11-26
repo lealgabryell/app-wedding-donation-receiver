@@ -13,7 +13,7 @@ test('sequência real de CLI inicializa uma vez e servidor publica a API com cat
     ...process.env, MONGODB_URI: uri, MONGODB_DB: db.databaseName,
     HOST: '127.0.0.1', PORT: '0', APP_ORIGIN: 'http://localhost:5173', VERCEL: '0',
     MERCADO_PAGO_PUBLIC_KEY: '', MERCADO_PAGO_ACCESS_TOKEN: '',
-    MERCADO_PAGO_WEBHOOK_SECRET: '', MERCADO_PAGO_NOTIFICATION_URL: '', CRON_SECRET: '',
+    MERCADO_PAGO_WEBHOOK_SECRET: '', CRON_SECRET: '',
   }
   const args = ['--env-file-if-exists=.env', 'server/init-db.mjs']
   const initialized = await execute(process.execPath, args, { env })

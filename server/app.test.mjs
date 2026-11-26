@@ -4,19 +4,21 @@ import { createHmac, randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { createApp, errorHandler } from './app.mjs'
 import { createPaymentService } from './payments.mjs'
-import { fixture, paymentFor } from './test-helpers.mjs'
+import { fixture, snapshotFor } from './test-helpers.mjs'
 import { MongoRateLimitStore } from './rate-limit.mjs'
 
 async function setup(t, overrides = {}) {
   const { store, db } = await fixture(t)
   const config = {
     origin: 'http://localhost:5173', publicKey: 'public-test', accessToken: 'private-test',
-    webhookSecret: 'webhook-test', notificationUrl: 'https://example.test/webhook',
-    cronSecret: 'cron-test', ...overrides,
+    webhookSecret: 'webhook-test', cronSecret: 'cron-test', ...overrides,
   }
   let payment
   const gateway = {
-    async create(donation) { payment = paymentFor(donation, { status: 'pending' }); return payment },
+    async create(donation) {
+      payment = snapshotFor(donation, { status: 'pending', pix: { qrCode: '00020126pix', qrCodeBase64: 'iVBORw0KGgo=' } })
+      return payment
+    },
     async get() { return payment },
   }
   const service = createPaymentService(store, gateway)
@@ -29,7 +31,10 @@ async function setup(t, overrides = {}) {
   await once(server, 'listening')
   t.after(() => new Promise((resolve) => server.close(resolve)))
   const url = `http://127.0.0.1:${server.address().port}`
-  const input = { id: randomUUID(), itemId: 1, amount: 50, form: { payment_method_id: 'pix', payer: { email: 'test@example.test' } } }
+  const input = {
+    id: randomUUID(), itemId: 1, amount: 50, paymentType: 'bank_transfer',
+    form: { payment_method_id: 'pix', payer: { email: 'test@example.test' } },
+  }
   const post = (body = input, origin = config.origin) => fetch(`${url}/api/donations`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', origin }, body: JSON.stringify(body),
   })
@@ -40,18 +45,23 @@ test('API cria Pix, valida webhook, confirma pagamento e publica apenas catálog
   const { url, input, post, getPayment, config } = await setup(t)
   const created = await post()
   assert.equal(created.status, 200)
-  assert.equal((await created.json()).status, 'pending')
+  const pending = await created.json()
+  assert.equal(pending.status, 'pending')
+  assert.equal(pending.pix.qrCode, '00020126pix')
+  assert.equal('orderId' in pending, false)
   let items = await (await fetch(`${url}/api/items`)).json()
   assert.equal(items[0].donatedValue, 100)
   getPayment().status = 'approved'
+  delete getPayment().pix
   const signature = createHmac('sha256', config.webhookSecret)
-    .update('id:123456;request-id:request-1;ts:1704908010;').digest('hex')
-  const notify = () => fetch(`${url}/api/webhooks/mercadopago?data.id=123456`, {
+    .update('id:ord01test;request-id:request-1;ts:1704908010;').digest('hex')
+  const notify = (type = 'order') => fetch(`${url}/api/webhooks/mercadopago?data.id=ORD01TEST`, {
     method: 'POST', headers: {
       'Content-Type': 'application/json', 'x-request-id': 'request-1',
       'x-signature': `ts=1704908010,v1=${signature}`,
-    }, body: JSON.stringify({ type: 'payment' }),
+    }, body: JSON.stringify({ type, action: 'order.processed' }),
   })
+  assert.equal((await notify('payment')).status, 400)
   assert.equal((await notify()).status, 200)
   assert.equal((await notify()).status, 200)
   items = await (await fetch(`${url}/api/items`)).json()
@@ -70,7 +80,10 @@ test('origem inválida, valor inválido e webhook sem assinatura não alteram os
   assert.equal((await post({ ...input, amount: -1 })).status, 400)
   assert.equal((await post({ ...input, amount: 0.001 })).status, 400)
   assert.equal((await post({ ...input, amount: 901 })).status, 409)
-  assert.equal((await fetch(`${url}/api/webhooks/mercadopago?data.id=123456`, { method: 'POST' })).status, 401)
+  assert.equal((await post({ ...input, paymentType: undefined })).status, 400)
+  assert.equal((await post({ ...input, paymentType: 'creditCard' })).status, 400)
+  assert.equal((await post({ ...input, form: { ...input.form, token: 'card-token' } })).status, 400)
+  assert.equal((await fetch(`${url}/api/webhooks/mercadopago?data.id=ORD01TEST`, { method: 'POST' })).status, 401)
   assert.equal((await store.read()).donations.length, 0)
   assert.equal((await store.read()).items[0].remainingValue, 900)
 })
@@ -108,7 +121,7 @@ test('cron exige segredo, reconcilia pendências e informa falhas sem repetir co
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { checked: 1, failed: 0 })
   assert.equal((await store.read()).items[0].donatedValue, 150)
-  getPayment().transaction_amount = 999
+  getPayment().amount = 999
   const failed = await cron('Bearer cron-test')
   assert.equal(failed.status, 503)
   assert.deepEqual(await failed.json(), { checked: 1, failed: 1 })

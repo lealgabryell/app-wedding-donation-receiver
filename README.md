@@ -42,7 +42,12 @@ instâncias têm seus próprios pools, limitados a cinco conexões cada.
 - `server/app.mjs`: contratos HTTP, validação, origem, assinatura e erros.
 - `server/store.mjs`: transações MongoDB e importação inicial.
 - `server/model.mjs`: validação do catálogo e histórico persistidos.
-- `server/payments.mjs`: reservas, idempotência, confirmação e estornos.
+- `server/payments.mjs`: domínio de reservas, idempotência, confirmação e estornos,
+  independente do provedor (trabalha com um `PaymentSnapshot` interno).
+- `server/mercadopago.mjs`: camada anticorrupção da **Orders API** do Mercado Pago
+  (criação/consulta/busca de pedidos, tradução de status, Pix, assinatura do webhook
+  e diagnóstico de erros). Trocar de provedor ou de API afeta somente este arquivo.
+- `server/errors.mjs`: `AppError`, erro HTTP compartilhado.
 - `server/index.mjs`: servidor local com frontend compilado e timer de recuperação.
 - `vercel.json`: build Vite, função Node, encaminhamento de `/api/*` e cron.
 
@@ -84,10 +89,9 @@ preserve suas credenciais. O arquivo real é ignorado pelo Git, assim como
 | `MONGODB_URI` | URI privada do Atlas. Obrigatória no servidor. |
 | `MONGODB_DB` | Nome explícito do banco, por exemplo `wedding`. Obrigatório; aceita letras, números, `_` e `-`. |
 | `APP_ORIGIN` | Somente protocolo e domínio do frontend, sem aspas ou caminho. Espaços e uma barra final são ignorados. Local: `http://localhost:5173`. Produção: `https://weddinglist-malu-e-gabryell.vercel.app` ou seu domínio próprio. Na Vercel exige HTTPS. |
-| `MERCADO_PAGO_PUBLIC_KEY` | Public Key da aplicação Mercado Pago. Única credencial de pagamento exposta pela API pública. |
-| `MERCADO_PAGO_ACCESS_TOKEN` | Access Token privado, da mesma aplicação/conta da Public Key. |
-| `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo da assinatura configurada no painel Webhooks. |
-| `MERCADO_PAGO_NOTIFICATION_URL` | URL pública HTTPS completa terminando em `/api/webhooks/mercadopago`. |
+| `MERCADO_PAGO_PUBLIC_KEY` | Public Key da aplicação Mercado Pago (Checkout Transparente/Bricks com Orders API). Única credencial de pagamento exposta pela API pública. |
+| `MERCADO_PAGO_ACCESS_TOKEN` | Access Token privado, da mesma aplicação/conta da Public Key. A Orders API só aceita credenciais `APP_USR-` (inclusive em testes). |
+| `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo da assinatura configurada no painel Webhooks (evento **Order**). |
 | `CRON_SECRET` | Segredo aleatório exclusivo, com pelo menos 32 caracteres, para autenticar o agendamento. |
 | `HOST` / `PORT` | Somente servidor local/tradicional; padrões `127.0.0.1` e `3001`. A Vercel gerencia a escuta. |
 
@@ -200,25 +204,33 @@ O build valida TypeScript e compila o frontend.
 
 ## 5. Configurar Mercado Pago
 
-1. Crie uma aplicação para Checkout Bricks em
-   [Suas integrações](https://www.mercadopago.com.br/developers/panel/app).
-2. Primeiro use Public Key e Access Token **de teste** da mesma conta.
-3. Configure no painel Webhooks o evento **Pagamentos (`payment`)** e a URL
-   pública `/api/webhooks/mercadopago`. Copie o segredo da assinatura para
-   `MERCADO_PAGO_WEBHOOK_SECRET` e a URL completa para
-   `MERCADO_PAGO_NOTIFICATION_URL`.
+1. Logado como o **usuário vendedor de teste** (Suas integrações → Contas de teste),
+   crie uma aplicação de **Checkout Transparente / Checkout Bricks** escolhendo a
+   **API de Orders** em [Suas integrações](https://www.mercadopago.com.br/developers/panel/app).
+   Aplicações de Checkout Pro não servem para este fluxo.
+2. Copie as credenciais **de produção** (`APP_USR-...`) dessa aplicação. A Orders API
+   recusa credenciais `TEST-` (`invalid_credentials`); como a conta é de teste, as
+   cobranças continuam fictícias. Public Key e Access Token devem ser da mesma aplicação.
+3. Em **Webhooks**, configure o evento **Order (Mercado Pago)** com a URL pública
+   `https://<seu-domínio>/api/webhooks/mercadopago` (modo de teste e de produção) e
+   copie o segredo da assinatura para `MERCADO_PAGO_WEBHOOK_SECRET`. A Orders API não
+   aceita URL de notificação por pedido: o webhook é configurado somente no painel.
 4. Em desenvolvimento, use túnel HTTPS para a API e ajuste `APP_ORIGIN` para a
    origem que o navegador efetivamente utiliza.
-5. Homologue aprovação, recusa e Pix pendente com as
-   [contas e cartões de teste oficiais](https://www.mercadopago.com.br/developers/pt/docs/checkout-bricks/integration-test).
-   Não use cartões reais em testes.
-6. Para produção, substitua pelas credenciais produtivas e revise a assinatura
-   e os eventos de produção. Não use o mesmo banco em previews e produção.
+5. Homologue aprovação (titular `APRO`), recusa (titular `OTHE`) e Pix pendente com as
+   [contas e cartões de teste oficiais](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/integration-test).
+   Use como comprador o e-mail de outro usuário de teste. Não use cartões reais em testes.
+6. Para produção real, repita os passos com a conta verdadeira do casal e revise
+   a assinatura e os eventos. Não use o mesmo banco em previews e produção.
 
 O Brick coleta/tokeniza os dados de cartão. O servidor recebe o token temporário,
-não o número do cartão. E-mail, documento do pagador e token não são persistidos.
+não o número do cartão, e cria um pedido (`POST /v1/orders`) com o meio escolhido.
+Para Pix, o QR code e o código copia e cola retornados pelo pedido são exibidos no
+modal enquanto o pagamento estiver pendente e descartados quando ele é concluído.
+E-mail, documento do pagador e token não são persistidos.
 Transações reais e carregamento do Brick dependem da conta/credenciais e devem
 ser homologados separadamente; testes automatizados não comprovam essa etapa.
+Detalhes da migração: [docs/migracao-orders.md](docs/migracao-orders.md).
 
 ## 6. Publicar na Vercel
 
@@ -228,7 +240,7 @@ ser homologados separadamente; testes automatizados não comprovam essa etapa.
    e credenciais produtivos; para **Preview**, use outro banco e credenciais de teste.
    A Vercel não recebe automaticamente seu `.env` local ignorado pelo Git.
 3. Configure `APP_ORIGIN` com o domínio canônico acessado pelos convidados e
-   a URL do webhook no mesmo deploy público. Redirecione domínios alternativos
+   cadastre no painel do Mercado Pago a URL do webhook desse mesmo deploy público. Redirecione domínios alternativos
    para o canônico; uma origem diferente não pode criar pagamentos.
 4. Inicialize o banco de produção uma única vez, pelo comando local da seção 3,
    com as variáveis do destino correto. Não coloque `db:init` no build.
@@ -261,9 +273,9 @@ de teste e o webhook no domínio final.
 | --- | --- | --- |
 | GET | `/api/items` | Catálogo público com saldo disponível; HTTP 200. |
 | GET | `/api/config` | Apenas `publicKey` e `paymentsEnabled`; HTTP 200. |
-| POST | `/api/donations` | UUID, `itemId`, valor e dados tokenizados do Brick; exige `Origin` igual a `APP_ORIGIN`. Limite: 10/minuto por IP. |
+| POST | `/api/donations` | UUID, `itemId`, valor, `paymentType` (`creditCard`, `debitCard`, `prepaidCard` ou `bank_transfer`) e `form` tokenizado do Brick; exige `Origin` igual a `APP_ORIGIN`. Retorna `{ id, itemId, amount, status, pix? }`. Limite: 10/minuto por IP. |
 | GET | `/api/donations/:id` | Consulta/reconcilia uma tentativa por UUID; limite: 90/minuto por IP. |
-| POST | `/api/webhooks/mercadopago` | Valida `x-signature`, `x-request-id` e `data.id`, consulta o provedor e aplica o pagamento. |
+| POST | `/api/webhooks/mercadopago` | Aceita somente `type: "order"`; valida `x-signature`, `x-request-id` e `data.id` (ID do pedido), consulta o pedido e aplica o resultado. |
 | GET | `/api/cron/reconcile` | Exige `Authorization: Bearer <CRON_SECRET>`; retorna `{ checked, failed }`, HTTP 503 se houver falha no lote. |
 
 Rotas `/api` desconhecidas retornam HTTP 404 em JSON. Erros de validação,
@@ -302,7 +314,11 @@ o webhook e que o agendador autorizado consiga alcançar a função.
 ## Consistência, segurança e manutenção
 
 - Toda tentativa é persistida **antes** da cobrança; o UUID é também
-  `X-Idempotency-Key` e `external_reference`. Uma repetição não cobra novamente.
+  `X-Idempotency-Key` e `external_reference` do pedido. Uma repetição não cobra
+  novamente; se a resposta se perder, o pedido é recuperado pela busca por
+  `external_reference` numa janela de até 30 dias a partir da criação.
+- Doações antigas criadas pela Payments API (com `paymentId`) são preservadas,
+  mas não são reconsultadas pela Orders API.
 - Reservas e créditos são transacionais. A revisão do presente é atualizada
   mesmo numa reserva sem crédito: instâncias concorrentes disputam a mesma
   escrita e o MongoDB repete a transação com um saldo atualizado.
@@ -339,9 +355,12 @@ o webhook e que o agendador autorizado consiga alcançar a função.
 | API retorna 503 na primeira chamada | Abra **Vercel → Logs** e procure `Falha ao iniciar API:`. A linha indica a causa sem expor credenciais: variável ausente/inválida (`MONGODB_URI`, `MONGODB_DB`, `APP_ORIGIN`), cluster inacessível (libere a Vercel em **Atlas → Network Access**), autenticação recusada (usuário/senha da URI) ou banco não inicializado (`MONGODB_DB` diferente do usado no `db:init`). Corrija e faça **redeploy**. |
 | Transação não suportada | O MongoDB deve estar em replica set; use Atlas ou configure seu ambiente local. |
 | HTTP 403 ao doar | O `Origin` do navegador deve coincidir exatamente com `APP_ORIGIN`; faça redeploy após corrigir a variável. |
-| Pagamentos desabilitados | Configure as quatro variáveis Mercado Pago e faça redeploy. |
+| Pagamentos desabilitados | Configure as três variáveis Mercado Pago (Public Key, Access Token e segredo do webhook) e faça redeploy. |
+| Log mostra `invalid_credentials` ou orienta usar `APP_USR-` | A Orders API não aceita credenciais `TEST-`. Use as credenciais de produção da aplicação criada pelo usuário vendedor de teste. |
+| Log mostra `forbidden` ou HTTP 403 | A aplicação provavelmente não é de Checkout Transparente com Orders API (por exemplo, foi criada para Checkout Pro). Crie a aplicação correta e troque as duas credenciais. |
+| Pagamento aprovado no Mercado Pago, mas o site continua pendente | Confira se o webhook está cadastrado com o evento **Order** (não somente `payment`), a URL do domínio canônico e o mesmo segredo de `MERCADO_PAGO_WEBHOOK_SECRET`. A consulta periódica do navegador e o cron também reconciliam o pedido. |
 | Doação retorna 502 e o log mostra `Mercado Pago respondeu com HTTP 401` ou `403` | Consulte `error`, `codes`, `diagnosis` e, quando fornecido em formato UUID, `requestId` na mesma linha. O HTTP sozinho não prova que o Access Token esteja errado: pode haver restrição de uso das credenciais, permissões da aplicação ou política da conta. Confira `MERCADO_PAGO_ACCESS_TOKEN` e `MERCADO_PAGO_PUBLIC_KEY` da mesma aplicação e ambiente, no escopo **Production** da Vercel, e faça redeploy após alterações. |
-| Diagnóstico menciona que uma das partes é de teste (`Unauthorized use of live credentials`) | Credenciais, e-mail do comprador e cartão estão em ambientes diferentes. Em teste, use credenciais de teste, cartão de teste e, no campo de e-mail do formulário, o e-mail de um **usuário comprador de teste** (Suas integrações → Contas de teste), nunca um e-mail real. Em produção, use credenciais de produção, cartão e e-mail reais. No 401, o log também informa `tokenValid` (o Access Token foi aceito em `/users/me`), `testUser` (a conta do token é de teste), `accountSite` (país da conta, ex.: `MLB`) e `payerIsSeller` (o e-mail do pagador é o da própria conta vendedora — use outro usuário de teste como comprador). Se esses campos estiverem corretos e o erro persistir, restam duas hipóteses: a `MERCADO_PAGO_PUBLIC_KEY` é de outra conta (Public Key e Access Token devem ser da mesma aplicação do mesmo usuário vendedor de teste) ou a aplicação não tem permissão para processar pagamentos. Confira ambas no painel da aplicação e, se persistir, envie o `requestId` ao suporte do Mercado Pago. |
+| Diagnóstico menciona que uma das partes é de teste (`Unauthorized use of live credentials`) | Credenciais, e-mail do comprador e cartão estão em ambientes diferentes. Em teste com a Orders API, use as credenciais `APP_USR-` da aplicação do **usuário vendedor de teste**, cartão de teste e, no campo de e-mail do formulário, o e-mail de outro **usuário comprador de teste** (Suas integrações → Contas de teste), nunca um e-mail real. Em produção, use credenciais de produção, cartão e e-mail reais. No 401, o log também informa `tokenValid` (o Access Token foi aceito em `/users/me`), `testUser` (a conta do token é de teste), `accountSite` (país da conta, ex.: `MLB`) e `payerIsSeller` (o e-mail do pagador é o da própria conta vendedora — use outro usuário de teste como comprador). Se esses campos estiverem corretos e o erro persistir, restam duas hipóteses: a `MERCADO_PAGO_PUBLIC_KEY` é de outra conta (Public Key e Access Token devem ser da mesma aplicação do mesmo usuário vendedor de teste) ou a aplicação não tem permissão para processar pagamentos. Confira ambas no painel da aplicação e, se persistir, envie o `requestId` ao suporte do Mercado Pago. |
 | Resposta de erro contém `donationRecorded: true` | A tentativa foi persistida no banco; isso não significa pagamento criado ou aprovado. Uma recusa definitiva libera a reserva e registra a tentativa como `rejected`; falhas ambíguas mantêm acompanhamento para evitar cobranças duplicadas. |
 | Cron retorna 401/503 | Confira segredo Bearer, Access Token, proteção do deploy e falhas do provedor/banco nos logs. |
 | Alterei o JSON e nada mudou | Após a migração o MongoDB é a fonte de verdade; seed/JSON não sobrescrevem dados automaticamente. |
@@ -351,4 +370,4 @@ erro reconhecidos e orientações fixas. Mensagens e descrições arbitrárias, 
 payload e as credenciais não são registrados. Respostas sem JSON são informadas
 explicitamente sem alterar a classificação da falha.
 
-Referência: [Criar pagamento — Mercado Pago](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/create-payment/post).
+Referência: [Orders API — Mercado Pago](https://www.mercadopago.com.br/developers/pt/reference/orders/online-payments/create/post).

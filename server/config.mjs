@@ -62,18 +62,10 @@ export function paymentConfig(env = process.env) {
   const origin = url.origin
   // Values pasted into hosting dashboards often carry spaces, line breaks or quotes, which the provider rejects with HTTP 401.
   const secret = (name) => (env[name] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2').trim()
-  const notificationUrl = secret('MERCADO_PAGO_NOTIFICATION_URL')
-  if (notificationUrl) {
-    let notification
-    try { notification = new URL(notificationUrl) } catch { throw new ConfigurationError('MERCADO_PAGO_NOTIFICATION_URL inválida.') }
-    if (notification.protocol !== 'https:' || notification.username || notification.password) {
-      throw new ConfigurationError('MERCADO_PAGO_NOTIFICATION_URL deve ser uma URL pública HTTPS.')
-    }
-  }
   return {
     publicKey: secret('MERCADO_PAGO_PUBLIC_KEY'),
     accessToken: secret('MERCADO_PAGO_ACCESS_TOKEN'),
     webhookSecret: secret('MERCADO_PAGO_WEBHOOK_SECRET'),
-    notificationUrl, origin, cronSecret: secret('CRON_SECRET'), vercel,
+    origin, cronSecret: secret('CRON_SECRET'), vercel,
   }
 }

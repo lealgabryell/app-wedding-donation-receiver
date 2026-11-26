@@ -33,10 +33,22 @@ export async function fixture(t, { initialize = true } = {}) {
   }
 }
 
-export function paymentFor(donation, overrides = {}) {
+// Domain-level PaymentSnapshot, as returned by any gateway.
+export function snapshotFor(donation, overrides = {}) {
   return {
-    id: '123456', status: 'approved', currency_id: 'BRL',
-    external_reference: donation.id, transaction_amount: donation.amount,
-    date_last_updated: '2026-01-01T12:00:00.000Z', ...overrides,
+    id: 'ORD01TEST', status: 'approved', currency: 'BRL', reference: donation.id,
+    amount: donation.amount, refundedAmount: 0, updatedAt: '2026-01-01T12:00:00.000Z', ...overrides,
+  }
+}
+
+// Raw Mercado Pago Orders API payload.
+export function orderFor(donation, overrides = {}) {
+  const amount = donation.amount.toFixed(2)
+  return {
+    id: 'ORD01TEST', type: 'online', external_reference: donation.id, total_amount: amount,
+    total_paid_amount: amount, country_code: 'BRA', status: 'processed', status_detail: 'accredited',
+    created_date: '2026-01-01T12:00:00.000000000Z', last_updated_date: '2026-01-01T12:00:00.000000000Z',
+    transactions: { payments: [{ id: 'PAY01TEST', amount, status: 'processed', payment_method: { id: 'master', type: 'credit_card' } }] },
+    ...overrides,
   }
 }

@@ -116,6 +116,12 @@ footer p, footer > span { color: var(--muted); font-size: 10px; }
 .tracking-banner > div { min-width: 0; }
 .tracking-banner button { flex-shrink: 0; }
 .field-error { color: #9a332d; font-size: 14px; margin: 12px 0; }
+.pix-panel { display: grid; gap: 12px; justify-items: center; margin: 0 0 22px; padding: clamp(14px, 4vw, 20px); border: 1px solid var(--border); border-radius: 8px; background: white; }
+.pix-panel h3 { font-size: clamp(1rem, .9375rem + .25vw, 1.125rem); }
+.pix-qr { width: min(240px, 70vw); aspect-ratio: 1; image-rendering: pixelated; }
+.pix-panel label { justify-self: start; font-weight: 550; font-size: 14px; }
+.pix-panel textarea { width: 100%; min-height: 72px; resize: none; padding: 10px; border: 1px solid #b1baa4; border-radius: 7px; font: 16px/1.4 ui-monospace, monospace; color: var(--ink); background: #faf9f4; overflow-wrap: anywhere; }
+.pix-panel a { color: var(--olive); font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; }
 .checkout-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 20px; font-size: 14px; }
 .text-button { background: transparent; color: var(--olive); text-decoration: underline; padding: 12px; min-height: 44px; font-size: 14px; }
 .donation-dialog .reference { font-size: 11px; overflow-wrap: anywhere; }

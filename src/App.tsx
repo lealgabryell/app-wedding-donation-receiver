@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import type { ComponentProps, FormEvent } from "react";
-import { initMercadoPago, Payment, StatusScreen } from "@mercadopago/sdk-react";
+import { initMercadoPago, Payment } from "@mercadopago/sdk-react";
 import { z } from "zod";
 import "./App.css";
 
@@ -32,11 +32,25 @@ const donationSchema = z.object({
   itemId: z.number(),
   amount: z.number(),
   status: z.string(),
-  paymentId: z.string().optional(),
+  pix: z
+    .object({
+      qrCode: z.string(),
+      qrCodeBase64: z.string().optional(),
+      ticketUrl: z.url({ protocol: /^https$/ }).optional(),
+      expiresAt: z.string().optional(),
+    })
+    .optional(),
 });
 type Item = z.infer<typeof itemSchema>;
 type Config = z.infer<typeof configSchema>;
 type Donation = z.infer<typeof donationSchema>;
+type BrickSubmit = Parameters<
+  NonNullable<ComponentProps<typeof Payment>["onSubmit"]>
+>[0];
+type Checkout = {
+  paymentType: BrickSubmit["selectedPaymentMethod"];
+  form: BrickSubmit["formData"];
+};
 type Notice = { kind: "success" | "error" | "info"; text: string };
 type Notify = (kind: Notice["kind"], text: string) => void;
 const currency = new Intl.NumberFormat("pt-BR", {
@@ -307,6 +321,57 @@ function Botanical() {
   );
 }
 
+function PixPanel({
+  pix,
+  notify,
+}: {
+  pix: NonNullable<Donation["pix"]>;
+  notify: Notify;
+}) {
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(pix.qrCode);
+      notify("success", "Código Pix copiado.");
+    } catch {
+      notify("error", "Não foi possível copiar. Selecione o código e copie manualmente.");
+    }
+  }
+  const expires = pix.expiresAt ? new Date(pix.expiresAt) : null;
+  return (
+    <section className="pix-panel" aria-labelledby="pix-title">
+      <h3 id="pix-title">Pague com Pix</h3>
+      {pix.qrCodeBase64 && (
+        <img
+          className="pix-qr"
+          src={`data:image/png;base64,${pix.qrCodeBase64}`}
+          alt="QR code Pix para pagamento"
+        />
+      )}
+      <label htmlFor="pix-code">Pix copia e cola</label>
+      <textarea
+        id="pix-code"
+        readOnly
+        rows={3}
+        value={pix.qrCode}
+        onFocus={(event) => event.currentTarget.select()}
+      />
+      <button type="button" className="primary full" onClick={copy}>
+        Copiar código Pix
+      </button>
+      {expires && !Number.isNaN(expires.getTime()) && (
+        <p className="muted small">
+          Válido até {expires.toLocaleString("pt-BR")}.
+        </p>
+      )}
+      {pix.ticketUrl && (
+        <a href={pix.ticketUrl} target="_blank" rel="noopener noreferrer">
+          Abrir instruções no Mercado Pago
+        </a>
+      )}
+    </section>
+  );
+}
+
 function DonationModal({
   item,
   config,
@@ -320,7 +385,7 @@ function DonationModal({
   item: Item;
   config: Config | null;
   donation: Donation | null;
-  onSubmit: (amount: number, form: unknown) => Promise<void>;
+  onSubmit: (amount: number, checkout: Checkout) => Promise<void>;
   onClose: () => void;
   notify: Notify;
   notice: Notice | null;
@@ -339,10 +404,6 @@ function DonationModal({
   const initialization = useMemo(
     () => ({ amount: checkoutAmount ?? 1 }),
     [checkoutAmount],
-  );
-  const statusInitialization = useMemo(
-    () => ({ paymentId: donation?.paymentId ?? "" }),
-    [donation?.paymentId],
   );
   useEffect(() => {
     const element = dialog.current;
@@ -380,12 +441,15 @@ function DonationModal({
   const submit = useStableHandler<
     Parameters<NonNullable<ComponentProps<typeof Payment>["onSubmit"]>>,
     Promise<void>
-  >(async ({ formData }) => {
+  >(async ({ formData, selectedPaymentMethod }) => {
     if (submitting.current || checkoutAmount === null) return;
     submitting.current = true;
     setBusy(true);
     try {
-      await onSubmit(checkoutAmount, formData);
+      await onSubmit(checkoutAmount, {
+        paymentType: selectedPaymentMethod,
+        form: formData,
+      });
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -400,13 +464,6 @@ function DonationModal({
     notify(
       "error",
       "O formulário de pagamento apresentou um erro. Verifique os dados ou tente novamente.",
-    );
-  });
-  const statusError = useStableHandler(() => {
-    setBrickError(true);
-    notify(
-      "error",
-      "Não foi possível exibir os detalhes do pagamento. Feche e reabra para tentar novamente.",
     );
   });
   const statusText =
@@ -476,17 +533,8 @@ function DonationModal({
               </p>
             )}
           </div>
-          {donation.paymentId && (
-            <StatusScreen
-              initialization={statusInitialization}
-              locale="pt-BR"
-              onError={statusError}
-            />
-          )}
-          {brickError && (
-            <p className="field-error" role="alert">
-              Os detalhes do Mercado Pago não carregaram. Verifique sua conexão.
-            </p>
+          {donation.pix && !terminal.has(donation.status) && (
+            <PixPanel pix={donation.pix} notify={notify} />
           )}
           <p className="reference">Identificador da doação: {donation.id}</p>
           <button className="primary full" disabled={busy} onClick={onClose}>
@@ -717,7 +765,7 @@ function App() {
     };
   }, [trackingId, acceptDonation, refresh]);
 
-  async function submitDonation(amount: number, form: unknown) {
+  async function submitDonation(amount: number, checkout: Checkout) {
     if (!selected) return;
     const id = crypto.randomUUID();
     try {
@@ -737,7 +785,7 @@ function App() {
       const next = await request("/api/donations", donationSchema, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, itemId: selected.id, amount, form }),
+        body: JSON.stringify({ id, itemId: selected.id, amount, ...checkout }),
       });
       acceptDonation(next);
       await refresh();
