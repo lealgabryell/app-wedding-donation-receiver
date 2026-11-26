@@ -10,11 +10,15 @@ const SEARCH_WINDOW_MS = 30 * 24 * 60 * 60 * 1000 - 60_000
 const CLOCK_SKEW_MS = 10 * 60 * 1000
 
 // Payment Brick `selectedPaymentMethod` → Orders `payment_method.type`.
+// The SDK typings declare camelCase, but the Brick sends snake_case at runtime; accept both.
 export const paymentMethodTypes = Object.freeze({
+  credit_card: 'credit_card',
+  debit_card: 'debit_card',
+  prepaid_card: 'prepaid_card',
+  bank_transfer: 'bank_transfer',
   creditCard: 'credit_card',
   debitCard: 'debit_card',
   prepaidCard: 'prepaid_card',
-  bank_transfer: 'bank_transfer',
 })
 
 const orderStatuses = new Map([

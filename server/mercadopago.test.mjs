@@ -31,6 +31,9 @@ test('cria pedido com valores decimais em texto, chave de idempotência e sem no
   }])
   assert.equal('notification_url' in body, false)
   assert.equal(JSON.stringify(body).includes('issuer_id'), false)
+  // Formato real enviado pelo Brick em produção (snake_case).
+  const runtime = buildOrderRequest(donation, item, { ...card, paymentType: 'credit_card' })
+  assert.deepEqual(runtime.transactions.payments, body.transactions.payments)
   assert.deepEqual(snapshot, {
     id: 'ORD01TEST', reference: donation.id, status: 'approved', amount: 25.5, refundedAmount: 0,
     currency: 'BRL', updatedAt: '2026-01-01T12:00:00.000000000Z',

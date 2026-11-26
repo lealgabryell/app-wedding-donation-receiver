@@ -273,7 +273,7 @@ de teste e o webhook no domínio final.
 | --- | --- | --- |
 | GET | `/api/items` | Catálogo público com saldo disponível; HTTP 200. |
 | GET | `/api/config` | Apenas `publicKey` e `paymentsEnabled`; HTTP 200. |
-| POST | `/api/donations` | UUID, `itemId`, valor, `paymentType` (`creditCard`, `debitCard`, `prepaidCard` ou `bank_transfer`) e `form` tokenizado do Brick; exige `Origin` igual a `APP_ORIGIN`. Retorna `{ id, itemId, amount, status, pix? }`. Limite: 10/minuto por IP. |
+| POST | `/api/donations` | UUID, `itemId`, valor, `paymentType` (`credit_card`, `debit_card`, `prepaid_card` ou `bank_transfer`; as variantes camelCase também são aceitas) e `form` tokenizado do Brick; exige `Origin` igual a `APP_ORIGIN`. Retorna `{ id, itemId, amount, status, pix? }`. Limite: 10/minuto por IP. |
 | GET | `/api/donations/:id` | Consulta/reconcilia uma tentativa por UUID; limite: 90/minuto por IP. |
 | POST | `/api/webhooks/mercadopago` | Aceita somente `type: "order"`; valida `x-signature`, `x-request-id` e `data.id` (ID do pedido), consulta o pedido e aplica o resultado. |
 | GET | `/api/cron/reconcile` | Exige `Authorization: Bearer <CRON_SECRET>`; retorna `{ checked, failed }`, HTTP 503 se houver falha no lote. |
