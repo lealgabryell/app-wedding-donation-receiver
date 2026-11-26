@@ -340,6 +340,15 @@ o webhook e que o agendador autorizado consiga alcançar a função.
 | Transação não suportada | O MongoDB deve estar em replica set; use Atlas ou configure seu ambiente local. |
 | HTTP 403 ao doar | O `Origin` do navegador deve coincidir exatamente com `APP_ORIGIN`; faça redeploy após corrigir a variável. |
 | Pagamentos desabilitados | Configure as quatro variáveis Mercado Pago e faça redeploy. |
-| Doação retorna 502 e o log mostra `Mercado Pago respondeu com HTTP 401` | O Access Token da Vercel foi recusado. Recopie `MERCADO_PAGO_ACCESS_TOKEN` no escopo **Production**, da mesma aplicação e do mesmo tipo (teste/produção) da Public Key, e faça redeploy. A tentativa recusada é liberada automaticamente; nenhuma cobrança é criada. |
+| Doação retorna 502 e o log mostra `Mercado Pago respondeu com HTTP 401` ou `403` | Consulte `error`, `codes`, `diagnosis` e, quando fornecido em formato UUID, `requestId` na mesma linha. O HTTP sozinho não prova que o Access Token esteja errado: pode haver restrição de uso das credenciais, permissões da aplicação ou política da conta. Confira `MERCADO_PAGO_ACCESS_TOKEN` e `MERCADO_PAGO_PUBLIC_KEY` da mesma aplicação e ambiente, no escopo **Production** da Vercel, e faça redeploy após alterações. |
+| Diagnóstico menciona que uma das partes é de teste (`Unauthorized use of live credentials`) | Credenciais, e-mail do comprador e cartão estão em ambientes diferentes. Em teste, use credenciais de teste, cartão de teste e, no campo de e-mail do formulário, o e-mail de um **usuário comprador de teste** (Suas integrações → Contas de teste), nunca um e-mail real. Em produção, use credenciais de produção, cartão e e-mail reais. No 401, o log também informa `tokenValid` (o Access Token foi aceito em `/users/me`) e `testUser` (a conta do token é de teste). |
+| Resposta de erro contém `donationRecorded: true` | A tentativa foi persistida no banco; isso não significa pagamento criado ou aprovado. Uma recusa definitiva libera a reserva e registra a tentativa como `rejected`; falhas ambíguas mantêm acompanhamento para evitar cobranças duplicadas. |
 | Cron retorna 401/503 | Confira segredo Bearer, Access Token, proteção do deploy e falhas do provedor/banco nos logs. |
 | Alterei o JSON e nada mudou | Após a migração o MongoDB é a fonte de verdade; seed/JSON não sobrescrevem dados automaticamente. |
+
+O diagnóstico do provedor registra somente códigos numéricos curtos ou nomes de
+erro reconhecidos e orientações fixas. Mensagens e descrições arbitrárias, o
+payload e as credenciais não são registrados. Respostas sem JSON são informadas
+explicitamente sem alterar a classificação da falha.
+
+Referência: [Criar pagamento — Mercado Pago](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/create-payment/post).

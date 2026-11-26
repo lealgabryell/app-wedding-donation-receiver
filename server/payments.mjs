@@ -9,6 +9,34 @@ export class AppError extends Error {
 }
 
 const released = new Set(['rejected', 'cancelled', 'refunded', 'charged_back'])
+const providerErrorNames = new Set(['unauthorized', 'forbidden', 'bad_request', 'invalid_token', 'invalid_credentials', 'invalid_client', 'pa_unauthorized_result_from_policies'])
+const providerDiagnoses = new Map([
+  ['unauthorized use of live credentials', 'Uma das partes é de teste e a outra não: credenciais, e-mail do comprador e cartão devem ser do mesmo ambiente. Em teste, use credenciais de teste, cartão de teste e o e-mail de um usuário comprador de teste (não um e-mail real); em produção, credenciais de produção, cartão real e e-mail real. Confira também a permissão de pagamentos da aplicação.'],
+  ['invalid access token', 'Access Token inválido ou revogado. Confira a credencial configurada no ambiente do deploy.'],
+  ['invalid_token', 'Access Token inválido ou revogado. Confira a credencial configurada no ambiente do deploy.'],
+  ['invalid users involved', 'Usuários incompatíveis. Confira se vendedor e comprador pertencem ao ambiente de teste correto.'],
+  ['pa_unauthorized_result_from_policies', 'Uma política do Mercado Pago bloqueou a operação. Confira as permissões e a situação da conta no provedor.'],
+])
+
+function providerDiagnosis(body) {
+  const causes = Array.isArray(body?.cause) ? body.cause.slice(0, 10) : []
+  const code = (value) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined
+    const text = String(value).toLowerCase()
+    return /^\d{1,5}$/.test(text) || providerErrorNames.has(text) ? text : undefined
+  }
+  const error = code(body?.error)
+  const codes = [...new Set([code(body?.code), ...causes.map((cause) => code(cause?.code))].filter(Boolean))]
+  // Provider descriptions can echo payer data or credentials. Log only recognized, fixed guidance.
+  const reasons = [body?.message, error, ...causes.flatMap((cause) => [cause?.description, code(cause?.code)])]
+    .filter((value) => typeof value === 'string')
+    .map((value) => providerDiagnoses.get(value.trim().toLowerCase().replace(/\.$/, '')))
+    .filter(Boolean)
+  return {
+    error, codes,
+    diagnosis: [...new Set(reasons)].join(' ') || 'Motivo não reconhecido. Consulte o suporte do Mercado Pago com o HTTP e o requestId; o corpo da resposta foi omitido para proteger dados sensíveis.',
+  }
+}
 
 export function availableCents(db, item) {
   const reserved = db.donations
@@ -31,6 +59,21 @@ export function verifySignature({ signature, requestId, dataId, secret }) {
 }
 
 export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
+  // Distinguishes an invalid token from a valid token whose operation was refused; logs only booleans.
+  async function checkToken() {
+    try {
+      const response = await fetcher('https://api.mercadopago.com/users/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(5000),
+      })
+      if (response.status === 401) return { tokenValid: false }
+      if (!response.ok) return {}
+      const account = await response.json()
+      return { tokenValid: true, testUser: Array.isArray(account?.tags) && account.tags.includes('test_user') }
+    } catch {
+      return {}
+    }
+  }
   async function request(path, options = {}) {
     let response
     try {
@@ -44,9 +87,18 @@ export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
       throw new AppError(503, 'Não foi possível confirmar a operação. Aguarde a consulta antes de tentar novamente.')
     }
     if (!response.ok) {
-      console.error('Mercado Pago respondeu com HTTP', response.status, response.status === 401 || response.status === 403
-        ? '— Access Token recusado. Confira MERCADO_PAGO_ACCESS_TOKEN nas variáveis do servidor (mesma aplicação e ambiente da Public Key) e faça redeploy.'
-        : '')
+      let body
+      try {
+        body = await response.json()
+      } catch {
+        console.error('Não foi possível ler o JSON de erro do Mercado Pago; corpo omitido. HTTP', response.status)
+      }
+      const requestId = response.headers.get('x-request-id')
+      console.error('Mercado Pago respondeu com HTTP', response.status, JSON.stringify({
+        ...providerDiagnosis(body),
+        ...(response.status === 401 ? await checkToken() : {}),
+        requestId: /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(requestId ?? '') ? requestId : undefined,
+      }))
       const error = new AppError(502, 'O Mercado Pago não confirmou a operação. Consulte o andamento antes de tentar novamente.')
       error.definitive = response.status >= 400 && response.status < 500 && ![408, 409, 425, 429].includes(response.status)
       throw error

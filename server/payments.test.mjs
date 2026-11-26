@@ -117,6 +117,7 @@ test('gateway define valor, referência e idempotência a partir dos dados do se
   const donation = { id: randomUUID(), amount: 25 }
   const gateway = createGateway('test-token', 'https://example.test/webhook', async (url, options) => {
     assert.equal(url, 'https://api.mercadopago.com/v1/payments')
+    assert.equal(options.headers.Authorization, 'Bearer test-token')
     assert.equal(options.headers['X-Idempotency-Key'], donation.id)
     const body = JSON.parse(options.body)
     assert.equal(body.transaction_amount, 25)
@@ -127,6 +128,64 @@ test('gateway define valor, referência e idempotência a partir dos dados do se
   await gateway.create(donation, { itemName: 'Flores' }, {
     transaction_amount: 999, external_reference: 'forged', notification_url: 'https://other.example.test',
   })
+})
+
+test('gateway diferencia recusa de credenciais e permissões sem registrar dados sensíveis', async (t) => {
+  const logs = []
+  t.mock.method(console, 'error', (...args) => logs.push(args.join(' ')))
+  const requestId = randomUUID()
+  const gateway = createGateway('private-token', 'https://example.test/webhook', async (url) => url.endsWith('/users/me')
+    ? Response.json({ id: 1, email: 'seller@example.test', tags: ['normal', 'test_user'] })
+    : Response.json({
+    error: 'unauthorized',
+    message: 'Unauthorized use of live credentials',
+    cause: [
+      { code: 300, description: 'Unauthorized use of live credentials' },
+      { code: 'private-token', description: 'payer@example.test private-token card-token' },
+    ],
+    payer: { email: 'payer@example.test', identification: { number: '00000000000' } },
+    token: 'card-token',
+  }, { status: 401, headers: { 'x-request-id': requestId } }))
+  await assert.rejects(gateway.create({ id: randomUUID(), amount: 25 }, { itemName: 'Flores' }, {}), (error) => {
+    assert.equal(error.status, 502)
+    assert.equal(error.definitive, true)
+    assert.equal(error.message.includes('private-token'), false)
+    return true
+  })
+  const output = logs.join('\n')
+  assert.match(output, /HTTP 401/)
+  assert.match(output, /"codes":\["300"\]/)
+  assert.match(output, /mesmo ambiente/)
+  assert.match(output, /"tokenValid":true,"testUser":true/)
+  assert.match(output, new RegExp(requestId))
+  for (const secret of ['private-token', 'card-token', 'payer@example.test', '00000000000', 'seller@example.test']) {
+    assert.equal(output.includes(secret), false)
+  }
+})
+
+test('gateway preserva classificação de falhas com respostas inesperadas e omite conteúdo desconhecido', async (t) => {
+  const logs = []
+  t.mock.method(console, 'error', (...args) => logs.push(args.join(' ')))
+  for (const [status, body, definitive] of [
+    [401, '<html>private-token</html>', true],
+    [403, JSON.stringify({ error: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES', cause: null }), true],
+    [429, 'null', false],
+    [503, JSON.stringify({ message: 'private-token', cause: { code: 'private-token' } }), false],
+  ]) {
+    const gateway = createGateway('private-token', 'https://example.test/webhook', async () =>
+      new Response(body, { status, headers: { 'x-request-id': 'private-token' } }))
+    await assert.rejects(gateway.find(randomUUID()), (error) => {
+      assert.equal(error.status, 502)
+      assert.equal(error.definitive, definitive)
+      return true
+    })
+  }
+  const output = logs.join('\n')
+  assert.match(output, /Não foi possível ler o JSON/)
+  assert.match(output, /política do Mercado Pago/)
+  assert.match(output, /Motivo não reconhecido/)
+  assert.match(output, /"tokenValid":false/)
+  assert.equal(output.includes('private-token'), false)
 })
 
 test('o mesmo UUID enviado a instâncias distintas não cria duas cobranças', async (t) => {
