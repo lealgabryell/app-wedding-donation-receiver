@@ -108,7 +108,7 @@ const paymentCustomization: ComponentProps<typeof Payment>["customization"] = {
     creditCard: "all",
     debitCard: "all",
     bankTransfer: "all",
-    maxInstallments: 1,
+    maxInstallments: 6,
   },
   visual: {
     style: {

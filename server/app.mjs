@@ -7,6 +7,8 @@ import { AppError } from './errors.mjs'
 import { publicItems } from './payments.mjs'
 import { paymentMethodTypes, verifySignature } from './mercadopago.mjs'
 
+const MAX_INSTALLMENTS = 6
+
 const submissionSchema = z.object({
   id: z.uuid(),
   itemId: z.number().int().positive(),
@@ -15,7 +17,7 @@ const submissionSchema = z.object({
   form: z.object({
     payment_method_id: z.string().min(1).max(100),
     token: z.string().max(512).optional(),
-    installments: z.number().int().min(1).max(12).optional(),
+    installments: z.number().int().min(1).max(MAX_INSTALLMENTS).optional(),
     payer: z.object({
       email: z.email().max(254),
       first_name: z.string().max(100).optional(),
@@ -26,6 +28,8 @@ const submissionSchema = z.object({
 }).refine(({ paymentType, form }) => paymentType === 'bank_transfer'
   ? form.payment_method_id === 'pix' && !form.token
   : Boolean(form.token))
+  // Only credit cards may be split into installments.
+  .refine(({ paymentType, form }) => (form.installments ?? 1) === 1 || paymentMethodTypes[paymentType] === 'credit_card')
 
 const publicDonation = (donation) => ({
   id: donation.id,

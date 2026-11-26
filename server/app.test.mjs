@@ -83,6 +83,9 @@ test('origem inválida, valor inválido e webhook sem assinatura não alteram os
   assert.equal((await post({ ...input, paymentType: undefined })).status, 400)
   assert.equal((await post({ ...input, paymentType: 'creditCard' })).status, 400)
   assert.equal((await post({ ...input, form: { ...input.form, token: 'card-token' } })).status, 400)
+  const card = { ...input, paymentType: 'credit_card', form: { ...input.form, payment_method_id: 'master', token: 'card-token' } }
+  assert.equal((await post({ ...card, form: { ...card.form, installments: 7 } })).status, 400)
+  assert.equal((await post({ ...card, paymentType: 'debit_card', form: { ...card.form, installments: 3 } })).status, 400)
   assert.equal((await fetch(`${url}/api/webhooks/mercadopago?data.id=ORD01TEST`, { method: 'POST' })).status, 401)
   assert.equal((await store.read()).donations.length, 0)
   assert.equal((await store.read()).items[0].remainingValue, 900)
