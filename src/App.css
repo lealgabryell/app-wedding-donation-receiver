@@ -112,7 +112,6 @@ footer p, footer > span { color: var(--muted); font-size: 10px; }
 .callout .secondary { margin-top: 12px; }
 .tracking-banner { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .tracking-banner p { font-size: 12px; margin-top: 4px; }
-.tracking-banner .reference { overflow-wrap: anywhere; }
 .tracking-banner > div { min-width: 0; }
 .tracking-banner button { flex-shrink: 0; }
 .field-error { color: #9a332d; font-size: 14px; margin: 12px 0; }
@@ -124,7 +123,6 @@ footer p, footer > span { color: var(--muted); font-size: 10px; }
 .pix-panel a { color: var(--olive); font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; }
 .checkout-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 20px; font-size: 14px; }
 .text-button { background: transparent; color: var(--olive); text-decoration: underline; padding: 12px; min-height: 44px; font-size: 14px; }
-.donation-dialog .reference { font-size: 11px; overflow-wrap: anywhere; }
 .toast { position: fixed; bottom: 24px; right: 24px; width: min(470px, calc(100vw - 32px)); padding: 14px 12px 14px 20px; display: flex; align-items: center; gap: 12px; background: #fffefa; border: 1px solid #ccd5c3; border-left: 4px solid #586f44; border-radius: 9px; box-shadow: 0 6px 32px #26332222; z-index: 5; font-size: 14px; }
 .toast > span { font-size: 22px; }
 .toast p { flex: 1; }
@@ -178,7 +176,7 @@ footer p, footer > span { color: var(--muted); font-size: 10px; }
   .gift-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
   .gift-picture { height: 190px; }
   .section-heading p, .gift-description, .thank-you p, .donate-button, .primary, .secondary, .text-button, .callout, .tracking-banner { font-size: var(--mobile-copy-size); }
-  .small, .provider, .gift-totals, .progress-caption strong span, .reservation-note, .overall, .overall > span:last-child, .setup-notice, .tracking-banner p, .secure-note, footer p, footer > span, .donation-dialog .reference { font-size: var(--mobile-detail-size); }
+  .small, .provider, .gift-totals, .progress-caption strong span, .reservation-note, .overall, .overall > span:last-child, .setup-notice, .tracking-banner p, .secure-note, footer p, footer > span { font-size: var(--mobile-detail-size); }
   .filters { flex-wrap: wrap; }
   .filters button { font-size: var(--mobile-detail-size); }
   .overall { min-width: 0; width: 100%; }

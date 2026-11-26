@@ -33,6 +33,7 @@ const publicDonation = (donation) => ({
   amount: donation.amount,
   status: donation.status,
   ...(donation.pix ? { pix: donation.pix } : {}),
+  ...(donation.statusDetail ? { statusDetail: donation.statusDetail } : {}),
 })
 
 export function createApp({ store, service, gateway, config, rateLimitStore }) {

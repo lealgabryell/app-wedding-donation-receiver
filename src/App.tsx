@@ -40,6 +40,7 @@ const donationSchema = z.object({
       expiresAt: z.string().optional(),
     })
     .optional(),
+  statusDetail: z.string().optional(),
 });
 type Item = z.infer<typeof itemSchema>;
 type Config = z.infer<typeof configSchema>;
@@ -65,6 +66,43 @@ const terminal = new Set([
   "refunded",
   "charged_back",
 ]);
+const tryAnother = " Tente outro cartão ou pague com Pix.";
+const failureReasons: Record<string, string> = {
+  insufficient_amount: `Pagamento recusado por saldo ou limite insuficiente no cartão.${tryAnother}`,
+  bad_filled_card_data: "Alguns dados do cartão estão incorretos. Confira e tente novamente.",
+  bad_filled_other: "Alguns dados do cartão estão incorretos. Confira e tente novamente.",
+  bad_filled_security_code: "O código de segurança (CVV) está incorreto. Confira e tente novamente.",
+  bad_filled_date: "A data de validade do cartão está incorreta. Confira e tente novamente.",
+  card_disabled: `O cartão não está ativo. Ative-o com o banco emissor.${tryAnother}`,
+  call_for_authorize: "O banco emissor precisa autorizar este pagamento. Entre em contato com ele e tente novamente.",
+  high_risk: `O pagamento foi recusado pela análise de segurança.${tryAnother}`,
+  rejected_high_risk: `O pagamento foi recusado pela análise de segurança.${tryAnother}`,
+  max_attempts_exceeded: `Limite de tentativas com este cartão atingido.${tryAnother}`,
+  duplicated_payment: "Um pagamento igual acabou de ser feito. Confira seu extrato antes de tentar de novo.",
+  invalid_installments: "O cartão não aceita esse número de parcelas.",
+  rejected_by_issuer: `O banco emissor recusou o pagamento.${tryAnother}`,
+  rejected_by_bank: `O banco emissor recusou o pagamento.${tryAnother}`,
+  expired: "O prazo para pagamento expirou. Faça uma nova doação.",
+  processing_error: "Ocorreu um erro ao processar o pagamento. Tente novamente em instantes.",
+};
+function failureMessage(donation: Donation) {
+  switch (donation.status) {
+    case "refunded":
+      return "Este pagamento foi estornado.";
+    case "charged_back":
+      return "Este pagamento foi contestado junto à operadora do cartão.";
+    case "cancelled":
+      return (
+        failureReasons[donation.statusDetail ?? ""] ??
+        "O pagamento foi cancelado. Você pode fazer uma nova doação."
+      );
+    default:
+      return (
+        failureReasons[donation.statusDetail ?? ""] ??
+        `O pagamento foi recusado.${tryAnother}`
+      );
+  }
+}
 const paymentCustomization: ComponentProps<typeof Payment>["customization"] = {
   paymentMethods: {
     creditCard: "all",
@@ -470,7 +508,7 @@ function DonationModal({
     donation?.status === "approved"
       ? "Doação confirmada. Muito obrigado!"
       : donation && terminal.has(donation.status)
-        ? "Este pagamento não foi concluído ou foi estornado."
+        ? failureMessage(donation)
         : "Aguardando a confirmação do pagamento";
 
   const choosingPayment = Boolean(
@@ -528,15 +566,13 @@ function DonationModal({
             {donation.status === "creating" && (
               <p>
                 Estamos verificando se o Mercado Pago recebeu a solicitação. Se
-                a espera continuar, contate os organizadores com o identificador
-                abaixo.
+                a espera continuar, contate os organizadores.
               </p>
             )}
           </div>
           {donation.pix && !terminal.has(donation.status) && (
             <PixPanel pix={donation.pix} notify={notify} />
           )}
-          <p className="reference">Identificador da doação: {donation.id}</p>
           <button className="primary full" disabled={busy} onClick={onClose}>
             Voltar para a lista
           </button>
@@ -718,10 +754,7 @@ function App() {
             "Doação confirmada! Muito obrigado por fazer parte da nossa história.",
           );
         else if (terminal.has(next.status))
-          notify(
-            "error",
-            "O pagamento não foi concluído ou foi estornado. Confira os detalhes da doação.",
-          );
+          notify("error", failureMessage(next));
         else
           notify(
             "info",
@@ -959,9 +992,6 @@ function App() {
                   {syncError ||
                     "Consulte os detalhes antes de fazer um novo pagamento."}
                 </p>
-                {!donation && (
-                  <p className="reference">Identificador: {trackingId}</p>
-                )}
               </div>
               <button
                 className="secondary"

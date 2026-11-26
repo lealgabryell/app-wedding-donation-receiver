@@ -54,6 +54,7 @@ const diagnoses = new Map([
 ])
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i
 const DECIMAL = /^\d{1,9}(?:\.\d{1,2})?$/
+const STATUS_DETAIL = /^[a-z0-9_]{1,60}$/
 
 function providerDiagnosis(body) {
   const list = (value) => (Array.isArray(value) ? value.slice(0, 10) : [])
@@ -137,7 +138,7 @@ function pixDetails(payment) {
   }
 }
 
-// Order → PaymentSnapshot: { id, reference, status, amount, refundedAmount, currency, updatedAt, pix? }.
+// Order → PaymentSnapshot: { id, reference, status, amount, refundedAmount, currency, updatedAt, statusDetail?, pix? }.
 export function toPaymentSnapshot(order) {
   const invalid = () => new AppError(502, 'O Mercado Pago retornou um pedido em formato inesperado.')
   if (typeof order?.id !== 'string' || typeof order.external_reference !== 'string') throw invalid()
@@ -156,6 +157,10 @@ export function toPaymentSnapshot(order) {
   }
   const currency = order.currency ?? order.currency_id ?? (order.country_code === 'BRA' ? 'BRL' : undefined)
   const pix = status === 'pending' ? pixDetails(order.transactions?.payments?.[0]) : undefined
+  // The payment-level detail (e.g. insufficient_amount) explains a failure; the order-level one is generic.
+  const detail = [order.transactions?.payments?.[0]?.status_detail, order.status_detail]
+    .find((value) => typeof value === 'string' && STATUS_DETAIL.test(value) && value !== order.status)
+  const statusDetail = ['rejected', 'cancelled'].includes(status) ? detail : undefined
   return {
     id: order.id,
     reference: order.external_reference,
@@ -164,6 +169,7 @@ export function toPaymentSnapshot(order) {
     refundedAmount: refundedCents / 100,
     currency,
     updatedAt: order.last_updated_date ?? order.created_date,
+    ...(statusDetail ? { statusDetail } : {}),
     ...(pix ? { pix } : {}),
   }
 }
@@ -211,7 +217,11 @@ export function createOrdersGateway(accessToken, fetcher = fetch) {
     }
     if (response.ok) return body
     // 402: the order exists but its transaction failed. It is a regular, definitive result.
-    if (response.status === 402 && typeof body?.id === 'string' && typeof body?.status === 'string') return body
+    // The order comes wrapped in `data` alongside `errors`.
+    if (response.status === 402) {
+      const order = typeof body?.data?.id === 'string' ? body.data : body
+      if (typeof order?.id === 'string' && typeof order?.status === 'string') return order
+    }
     const requestId = response.headers.get('x-request-id')
     console.error('Mercado Pago respondeu com HTTP', response.status, JSON.stringify({
       ...providerDiagnosis(body),

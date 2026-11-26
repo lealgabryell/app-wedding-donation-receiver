@@ -85,11 +85,18 @@ test('reembolsos parciais somam apenas estornos processados', () => {
   assert.throws(() => toPaymentSnapshot(orderFor(donation, { status_detail: 'partially_refunded', transactions: {} })), /reembolso parcial/)
 })
 
-test('HTTP 402 com pedido é resultado definitivo; 409 e 5xx não liberam a reserva', async (t) => {
+test('HTTP 402 com pedido em `data` é resultado definitivo com motivo; 409 e 5xx não liberam a reserva', async (t) => {
   t.mock.method(console, 'error', () => {})
   const donation = { id: randomUUID(), amount: 10 }
-  const failed = orderFor(donation, { status: 'failed', status_detail: 'failed' })
-  assert.equal((await createOrdersGateway('x', async () => json(failed, 402)).create(donation, item, card)).status, 'rejected')
+  const failed = orderFor(donation, {
+    status: 'failed', status_detail: 'failed',
+    transactions: { payments: [{ id: 'PAY01', amount: '10.00', status: 'failed', status_detail: 'insufficient_amount' }] },
+  })
+  const body = { errors: [{ code: 'failed', details: ['PAY01: insufficient_amount'] }], data: failed }
+  const snapshot = await createOrdersGateway('x', async () => json(body, 402)).create(donation, item, card)
+  assert.equal(snapshot.status, 'rejected')
+  assert.equal(snapshot.statusDetail, 'insufficient_amount')
+  assert.equal(toPaymentSnapshot(orderFor(donation)).statusDetail, undefined)
   for (const [status, definitive] of [[400, true], [409, false], [423, false], [500, false]]) {
     await assert.rejects(createOrdersGateway('x', async () => json({ errors: [{ code: 'failed' }] }, status)).create(donation, item, card),
       (error) => error.status === 502 && error.definitive === definitive)

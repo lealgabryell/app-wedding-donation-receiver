@@ -59,6 +59,8 @@ export function createPaymentService(store, gateway) {
       donation.paymentUpdatedAt = new Date(updatedAt).toISOString()
       if (snapshot.pix) donation.pix = snapshot.pix
       else delete donation.pix
+      if (snapshot.statusDetail) donation.statusDetail = snapshot.statusDetail
+      else delete donation.statusDetail
       return { ...donation }
     })
   }

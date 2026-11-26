@@ -29,6 +29,8 @@ const donationSchema = z.object({
   // Legacy Payments API id, kept only for records created before the Orders migration.
   paymentId: z.string().optional(),
   pix: pixSchema.optional(),
+  // Provider failure reason (e.g. insufficient_amount), shown to the donor as a friendly message.
+  statusDetail: z.string().regex(/^[a-z0-9_]{1,60}$/).optional(),
   creditedCents: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
   paymentUpdatedAt: z.iso.datetime({ offset: true }).optional(),
