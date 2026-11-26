@@ -102,4 +102,7 @@ test('configuração exige MongoDB e origem HTTPS explícita na Vercel, sem expo
   })
   assert.equal(pasted.accessToken, 'APP_USR-token')
   assert.equal(pasted.publicKey, 'APP_USR-public')
+  assert.equal(pasted.statementDescriptor, 'MALU E GABRYELL')
+  assert.throws(() => paymentConfig({ APP_ORIGIN: 'https://example.test', MERCADO_PAGO_STATEMENT_DESCRIPTOR: 'CASAMENTO MALU & GABRYELL' }),
+    /MERCADO_PAGO_STATEMENT_DESCRIPTOR/)
 })

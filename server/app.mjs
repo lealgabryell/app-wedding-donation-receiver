@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { timingSafeEqual } from 'node:crypto'
 import { AppError } from './errors.mjs'
 import { publicItems } from './payments.mjs'
-import { paymentMethodTypes, verifySignature } from './mercadopago.mjs'
+import { DEVICE_ID, paymentMethodTypes, verifySignature } from './mercadopago.mjs'
 
 const MAX_INSTALLMENTS = 6
 
@@ -14,6 +14,7 @@ const submissionSchema = z.object({
   itemId: z.number().int().positive(),
   amount: z.number().min(1).max(1000000).refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 0.00001),
   paymentType: z.enum(Object.keys(paymentMethodTypes)),
+  deviceId: z.string().regex(DEVICE_ID).optional(),
   form: z.object({
     payment_method_id: z.string().min(1).max(100),
     token: z.string().max(512).optional(),
@@ -66,8 +67,8 @@ export function createApp({ store, service, gateway, config, rateLimitStore }) {
     }
     const parsed = submissionSchema.safeParse(req.body)
     if (!parsed.success) throw new AppError(400, 'Confira o valor e os dados de pagamento informados.')
-    const { paymentType, form, ...donation } = parsed.data
-    res.json(publicDonation(await service.create({ ...donation, checkout: { paymentType, form } })))
+    const { paymentType, form, deviceId, ...donation } = parsed.data
+    res.json(publicDonation(await service.create({ ...donation, checkout: { paymentType, form, deviceId } })))
   })
 
   app.get('/api/donations/:id', rateLimit({

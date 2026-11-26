@@ -1,4 +1,5 @@
 import { MongoClient } from 'mongodb'
+import { DEFAULT_STATEMENT_DESCRIPTOR, STATEMENT_DESCRIPTOR } from './mercadopago.mjs'
 
 // Messages of this class never contain configuration values, so they are safe to log.
 export class ConfigurationError extends Error {
@@ -62,10 +63,15 @@ export function paymentConfig(env = process.env) {
   const origin = url.origin
   // Values pasted into hosting dashboards often carry spaces, line breaks or quotes, which the provider rejects with HTTP 401.
   const secret = (name) => (env[name] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2').trim()
+  const statementDescriptor = secret('MERCADO_PAGO_STATEMENT_DESCRIPTOR') || DEFAULT_STATEMENT_DESCRIPTOR
+  if (!STATEMENT_DESCRIPTOR.test(statementDescriptor)) {
+    throw new ConfigurationError('MERCADO_PAGO_STATEMENT_DESCRIPTOR inválida: use até 22 letras sem acento, números, espaços, ponto, hífen ou asterisco.')
+  }
   return {
     publicKey: secret('MERCADO_PAGO_PUBLIC_KEY'),
     accessToken: secret('MERCADO_PAGO_ACCESS_TOKEN'),
     webhookSecret: secret('MERCADO_PAGO_WEBHOOK_SECRET'),
+    statementDescriptor,
     origin, cronSecret: secret('CRON_SECRET'), vercel,
   }
 }

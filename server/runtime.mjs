@@ -10,7 +10,9 @@ export async function createRuntime(env = process.env) {
   const { client, db } = await connectDatabase(env)
   try {
     const store = await createStore(client, db)
-    const gateway = createOrdersGateway(config.accessToken)
+    const gateway = createOrdersGateway(config.accessToken, fetch, {
+      statementDescriptor: config.statementDescriptor, origin: config.origin,
+    })
     const service = createPaymentService(store, gateway)
     const app = createApp({
       store, gateway, service, config,

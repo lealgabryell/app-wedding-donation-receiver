@@ -92,6 +92,7 @@ preserve suas credenciais. O arquivo real é ignorado pelo Git, assim como
 | `MERCADO_PAGO_PUBLIC_KEY` | Public Key da aplicação Mercado Pago (Checkout Transparente/Bricks com Orders API). Única credencial de pagamento exposta pela API pública. |
 | `MERCADO_PAGO_ACCESS_TOKEN` | Access Token privado, da mesma aplicação/conta da Public Key. A Orders API só aceita credenciais `APP_USR-` (inclusive em testes). |
 | `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo da assinatura configurada no painel Webhooks (evento **Order**). |
+| `MERCADO_PAGO_STATEMENT_DESCRIPTOR` | Opcional. Texto exibido na fatura do cartão (`statement_descriptor`); padrão `MALU E GABRYELL`. Até 22 caracteres: letras sem acento, números, espaço, `.`, `-` ou `*`. |
 | `CRON_SECRET` | Segredo aleatório exclusivo, com pelo menos 32 caracteres, para autenticar o agendamento. |
 | `HOST` / `PORT` | Somente servidor local/tradicional; padrões `127.0.0.1` e `3001`. A Vercel gerencia a escuta. |
 
@@ -225,6 +226,11 @@ O build valida TypeScript e compila o frontend.
 
 O Brick coleta/tokeniza os dados de cartão. O servidor recebe o token temporário,
 não o número do cartão, e cria um pedido (`POST /v1/orders`) com o meio escolhido.
+Para a qualidade da integração, o pedido envia `items` (título, `unit_price` igual ao
+valor doado e `quantity: 1`), `statement_descriptor` nos cartões e o Device ID
+(`window.MP_DEVICE_SESSION_ID`, gerado pelo script de segurança do Mercado Pago) no
+cabeçalho `X-meli-session-id`. `picture_url` é a imagem do item resolvida a partir de
+`APP_ORIGIN` e só é enviada quando resulta em URL `https://`.
 Para Pix, o QR code e o código copia e cola retornados pelo pedido são exibidos no
 modal enquanto o pagamento estiver pendente e descartados quando ele é concluído.
 E-mail, documento do pagador e token não são persistidos.

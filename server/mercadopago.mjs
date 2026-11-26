@@ -90,17 +90,48 @@ export function verifySignature({ signature, requestId, dataId, secret }) {
 const decimal = (amount) => (cents(amount) / 100).toFixed(2)
 const money = (value) => (typeof value === 'string' && DECIMAL.test(value) ? Number(value) : undefined)
 
-export function buildOrderRequest(donation, item, { paymentType, form }) {
+// Text shown on the buyer's card statement; card networks truncate long values (22 chars is the safe limit).
+export const DEFAULT_STATEMENT_DESCRIPTOR = 'MALU E GABRYELL'
+export const STATEMENT_DESCRIPTOR = /^[A-Za-z0-9 .*-]{1,22}$/
+// Device fingerprint created by Mercado Pago's security script (window.MP_DEVICE_SESSION_ID).
+export const DEVICE_ID = /^[A-Za-z0-9._:-]{1,200}$/
+
+const httpsUrl = (value, base) => {
+  try {
+    const url = new URL(value, base)
+    return url.protocol === 'https:' ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// The donation is modeled as one unit of the gift whose unit price is the donated amount,
+// so items.unit_price × items.quantity always equals total_amount.
+function orderItem(item, amount, origin) {
+  const pictureUrl = httpsUrl(item.pictureUrl, origin)
+  return {
+    title: item.itemName.slice(0, 150),
+    unit_price: amount,
+    quantity: 1,
+    ...(item.id === undefined ? {} : { external_code: String(item.id) }),
+    ...(item.description ? { description: item.description.slice(0, 600) } : {}),
+    ...(pictureUrl ? { picture_url: pictureUrl } : {}),
+  }
+}
+
+export function buildOrderRequest(donation, item, { paymentType, form }, { statementDescriptor = DEFAULT_STATEMENT_DESCRIPTOR, origin } = {}) {
   const type = paymentMethodTypes[paymentType]
   if (!type) throw new AppError(400, 'Meio de pagamento não suportado.')
   const amount = decimal(donation.amount)
   const { email, first_name: firstName, last_name: lastName, identification } = form.payer
+  const card = type !== 'bank_transfer'
   return {
     type: 'online',
     processing_mode: 'automatic',
     external_reference: donation.id,
     total_amount: amount,
     description: `Presente de casamento: ${item.itemName}`.slice(0, 150),
+    items: [orderItem(item, amount, origin)],
     payer: {
       email,
       ...(firstName ? { first_name: firstName } : {}),
@@ -113,7 +144,7 @@ export function buildOrderRequest(donation, item, { paymentType, form }) {
         payment_method: {
           id: form.payment_method_id,
           type,
-          ...(type === 'bank_transfer' ? {} : { token: form.token, installments: form.installments ?? 1 }),
+          ...(card ? { token: form.token, installments: form.installments ?? 1, statement_descriptor: statementDescriptor } : {}),
         },
       }],
     },
@@ -174,7 +205,7 @@ export function toPaymentSnapshot(order) {
   }
 }
 
-export function createOrdersGateway(accessToken, fetcher = fetch) {
+export function createOrdersGateway(accessToken, fetcher = fetch, options = {}) {
   const authorization = { Authorization: `Bearer ${accessToken}` }
 
   // Distinguishes an invalid token from a valid token whose operation was refused; logs no personal data.
@@ -237,8 +268,11 @@ export function createOrdersGateway(accessToken, fetcher = fetch) {
     async create(donation, item, checkout) {
       const order = await request('/v1/orders', {
         method: 'POST',
-        headers: { 'X-Idempotency-Key': donation.id },
-        body: JSON.stringify(buildOrderRequest(donation, item, checkout)),
+        headers: {
+          'X-Idempotency-Key': donation.id,
+          ...(DEVICE_ID.test(checkout?.deviceId ?? '') ? { 'X-meli-session-id': checkout.deviceId } : {}),
+        },
+        body: JSON.stringify(buildOrderRequest(donation, item, checkout, options)),
       }, checkout?.form?.payer?.email)
       return toPaymentSnapshot(order)
     },

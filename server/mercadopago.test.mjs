@@ -4,7 +4,7 @@ import { createHmac, randomUUID } from 'node:crypto'
 import { buildOrderRequest, createOrdersGateway, toPaymentSnapshot, verifySignature } from './mercadopago.mjs'
 import { orderFor } from './test-helpers.mjs'
 
-const item = { itemName: 'Jogo de panelas' }
+const item = { id: 7, itemName: 'Jogo de panelas', description: 'Panelas antiaderentes', pictureUrl: '/images/panelas.jpg' }
 const card = {
   paymentType: 'creditCard',
   form: { token: 'card-token', payment_method_id: 'master', installments: 2, issuer_id: '12749', payer: { email: 'a@example.test' } },
@@ -18,16 +18,22 @@ test('cria pedido com valores decimais em texto, chave de idempotência e sem no
     calls.push({ url, options })
     return json(orderFor(donation))
   })
-  const snapshot = await gateway.create(donation, item, card)
+  const snapshot = await gateway.create(donation, item, { ...card, deviceId: 'armor.abc123' })
   const [{ url, options }] = calls
   const body = JSON.parse(options.body)
   assert.equal(url, 'https://api.mercadopago.com/v1/orders')
   assert.equal(options.headers['X-Idempotency-Key'], donation.id)
+  assert.equal(options.headers['X-meli-session-id'], 'armor.abc123')
   assert.equal(options.headers.Authorization, 'Bearer APP_USR-test')
   assert.equal(body.total_amount, '25.50')
   assert.equal(body.external_reference, donation.id)
+  // Sem origem HTTPS, a imagem relativa não é enviada: o Mercado Pago exige URL absoluta.
+  assert.deepEqual(body.items, [{
+    title: 'Jogo de panelas', unit_price: '25.50', quantity: 1, external_code: '7', description: 'Panelas antiaderentes',
+  }])
   assert.deepEqual(body.transactions.payments, [{
-    amount: '25.50', payment_method: { id: 'master', type: 'credit_card', token: 'card-token', installments: 2 },
+    amount: '25.50',
+    payment_method: { id: 'master', type: 'credit_card', token: 'card-token', installments: 2, statement_descriptor: 'MALU E GABRYELL' },
   }])
   assert.equal('notification_url' in body, false)
   assert.equal(JSON.stringify(body).includes('issuer_id'), false)
@@ -42,8 +48,11 @@ test('cria pedido com valores decimais em texto, chave de idempotência e sem no
 
 test('Pix usa bank_transfer sem token e expõe apenas dados seguros do QR code enquanto pendente', () => {
   const donation = { id: randomUUID(), amount: 10 }
-  const request = buildOrderRequest(donation, item, { paymentType: 'bank_transfer', form: { payment_method_id: 'pix', payer: { email: 'a@example.test' } } })
+  const request = buildOrderRequest(donation, item,
+    { paymentType: 'bank_transfer', form: { payment_method_id: 'pix', payer: { email: 'a@example.test' } } },
+    { origin: 'https://example.test' })
   assert.deepEqual(request.transactions.payments[0].payment_method, { id: 'pix', type: 'bank_transfer' })
+  assert.equal(request.items[0].picture_url, 'https://example.test/images/panelas.jpg')
   const payment = {
     id: 'PAY01', status: 'action_required', date_of_expiration: '2026-01-02T12:00:00.000-03:00',
     payment_method: { id: 'pix', type: 'bank_transfer', qr_code: '00020126pix', qr_code_base64: 'iVBORw0KGgo=', ticket_url: 'https://www.mercadopago.com.br/pix' },

@@ -54,6 +54,27 @@ type Checkout = {
 };
 type Notice = { kind: "success" | "error" | "info"; text: string };
 type Notify = (kind: Notice["kind"], text: string) => void;
+declare global {
+  interface Window {
+    MP_DEVICE_SESSION_ID?: unknown;
+  }
+}
+// Mercado Pago's anti-fraud script sets window.MP_DEVICE_SESSION_ID, forwarded to improve approval.
+function loadDeviceFingerprint() {
+  if (window.MP_DEVICE_SESSION_ID || document.querySelector("script[data-mp-security]")) return;
+  const script = document.createElement("script");
+  script.src = "https://www.mercadopago.com/v2/security.js";
+  script.setAttribute("view", "checkout");
+  script.async = true;
+  script.dataset.mpSecurity = "";
+  document.head.append(script);
+}
+function deviceId() {
+  const value = window.MP_DEVICE_SESSION_ID;
+  return typeof value === "string" && /^[A-Za-z0-9._:-]{1,200}$/.test(value)
+    ? value
+    : undefined;
+}
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
@@ -716,8 +737,10 @@ function App() {
         request("/api/config", configSchema),
       ])
         .then(([catalog, settings]) => {
-          if (settings.paymentsEnabled)
+          if (settings.paymentsEnabled) {
             initMercadoPago(settings.publicKey, { locale: "pt-BR" });
+            loadDeviceFingerprint();
+          }
           setItems(catalog);
           setConfig(settings);
           setLoadError("");
@@ -818,7 +841,13 @@ function App() {
       const next = await request("/api/donations", donationSchema, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, itemId: selected.id, amount, ...checkout }),
+        body: JSON.stringify({
+          id,
+          itemId: selected.id,
+          amount,
+          ...checkout,
+          deviceId: deviceId(),
+        }),
       });
       acceptDonation(next);
       await refresh();
