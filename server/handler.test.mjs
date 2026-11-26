@@ -96,5 +96,12 @@ test('configuração exige MongoDB e origem HTTPS explícita na Vercel, sem expo
   assert.throws(() => paymentConfig({ VERCEL: '1', APP_ORIGIN: 'https://example.test/lista' }), /sem caminho/)
   assert.throws(() => paymentConfig({ VERCEL: '1', APP_ORIGIN: 'https://user:pass@example.test' }), /credenciais/)
   assert.equal(paymentConfig({ VERCEL: '1', APP_ORIGIN: ' https://Example.test/ \n' }).origin, 'https://example.test')
+  const pasted = paymentConfig({
+    APP_ORIGIN: 'https://example.test', MERCADO_PAGO_ACCESS_TOKEN: ' "APP_USR-token"\n',
+    MERCADO_PAGO_PUBLIC_KEY: "'APP_USR-public' ", MERCADO_PAGO_NOTIFICATION_URL: ' https://example.test/api/webhooks/mercadopago\n',
+  })
+  assert.equal(pasted.accessToken, 'APP_USR-token')
+  assert.equal(pasted.publicKey, 'APP_USR-public')
+  assert.equal(pasted.notificationUrl, 'https://example.test/api/webhooks/mercadopago')
   assert.throws(() => paymentConfig({ MERCADO_PAGO_NOTIFICATION_URL: 'http://example.test/webhook' }), /HTTPS/)
 })

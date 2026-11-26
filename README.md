@@ -4,6 +4,17 @@ React + Vite + TypeScript, API Express e MongoDB. O convidado escolhe um present
 informa o valor e paga pelo **Payment Brick oficial do Mercado Pago** (Pix e
 cartões, conforme habilitados na conta). Não há login nem pagamento simulado.
 
+### Uso em dispositivos móveis
+
+A página e o modal usam fontes e espaçamentos fluidos. O campo de valor mantém
+teclado decimal e área de toque de pelo menos 44 px; o modal permite rolagem
+interna em telas baixas. O viewport solicita redimensionamento ao abrir o teclado
+virtual nos navegadores que suportam `interactive-widget=resizes-content`,
+sem bloquear o zoom do usuário. Os campos do Mercado Pago usam a personalização
+oficial do Brick, com fontes de 16 px e o espaçamento interno padrão do formulário.
+Os avisos de erro não ficam sobre os campos na etapa de pagamento, e erros
+recuperáveis não fecham o formulário.
+
 ## Arquitetura e ciclo de execução
 
 ```text
@@ -329,5 +340,6 @@ o webhook e que o agendador autorizado consiga alcançar a função.
 | Transação não suportada | O MongoDB deve estar em replica set; use Atlas ou configure seu ambiente local. |
 | HTTP 403 ao doar | O `Origin` do navegador deve coincidir exatamente com `APP_ORIGIN`; faça redeploy após corrigir a variável. |
 | Pagamentos desabilitados | Configure as quatro variáveis Mercado Pago e faça redeploy. |
+| Doação retorna 502 e o log mostra `Mercado Pago respondeu com HTTP 401` | O Access Token da Vercel foi recusado. Recopie `MERCADO_PAGO_ACCESS_TOKEN` no escopo **Production**, da mesma aplicação e do mesmo tipo (teste/produção) da Public Key, e faça redeploy. A tentativa recusada é liberada automaticamente; nenhuma cobrança é criada. |
 | Cron retorna 401/503 | Confira segredo Bearer, Access Token, proteção do deploy e falhas do provedor/banco nos logs. |
 | Alterei o JSON e nada mudou | Após a migração o MongoDB é a fonte de verdade; seed/JSON não sobrescrevem dados automaticamente. |

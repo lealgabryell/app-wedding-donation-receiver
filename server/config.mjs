@@ -60,7 +60,9 @@ export function paymentConfig(env = process.env) {
     throw invalid('informe somente protocolo e domínio, sem caminho, parâmetros ou credenciais.')
   }
   const origin = url.origin
-  const notificationUrl = env.MERCADO_PAGO_NOTIFICATION_URL ?? ''
+  // Values pasted into hosting dashboards often carry spaces, line breaks or quotes, which the provider rejects with HTTP 401.
+  const secret = (name) => (env[name] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2').trim()
+  const notificationUrl = secret('MERCADO_PAGO_NOTIFICATION_URL')
   if (notificationUrl) {
     let notification
     try { notification = new URL(notificationUrl) } catch { throw new ConfigurationError('MERCADO_PAGO_NOTIFICATION_URL inválida.') }
@@ -69,9 +71,9 @@ export function paymentConfig(env = process.env) {
     }
   }
   return {
-    publicKey: env.MERCADO_PAGO_PUBLIC_KEY ?? '',
-    accessToken: env.MERCADO_PAGO_ACCESS_TOKEN ?? '',
-    webhookSecret: env.MERCADO_PAGO_WEBHOOK_SECRET ?? '',
-    notificationUrl, origin, cronSecret: env.CRON_SECRET ?? '', vercel,
+    publicKey: secret('MERCADO_PAGO_PUBLIC_KEY'),
+    accessToken: secret('MERCADO_PAGO_ACCESS_TOKEN'),
+    webhookSecret: secret('MERCADO_PAGO_WEBHOOK_SECRET'),
+    notificationUrl, origin, cronSecret: secret('CRON_SECRET'), vercel,
   }
 }

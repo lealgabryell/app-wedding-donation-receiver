@@ -44,7 +44,9 @@ export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
       throw new AppError(503, 'Não foi possível confirmar a operação. Aguarde a consulta antes de tentar novamente.')
     }
     if (!response.ok) {
-      console.error('Mercado Pago respondeu com HTTP', response.status)
+      console.error('Mercado Pago respondeu com HTTP', response.status, response.status === 401 || response.status === 403
+        ? '— Access Token recusado. Confira MERCADO_PAGO_ACCESS_TOKEN nas variáveis do servidor (mesma aplicação e ambiente da Public Key) e faça redeploy.'
+        : '')
       const error = new AppError(502, 'O Mercado Pago não confirmou a operação. Consulte o andamento antes de tentar novamente.')
       error.definitive = response.status >= 400 && response.status < 500 && ![408, 409, 425, 429].includes(response.status)
       throw error
