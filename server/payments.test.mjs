@@ -135,7 +135,7 @@ test('gateway diferencia recusa de credenciais e permissões sem registrar dados
   t.mock.method(console, 'error', (...args) => logs.push(args.join(' ')))
   const requestId = randomUUID()
   const gateway = createGateway('private-token', 'https://example.test/webhook', async (url) => url.endsWith('/users/me')
-    ? Response.json({ id: 1, email: 'seller@example.test', tags: ['normal', 'test_user'] })
+    ? Response.json({ id: 1, email: 'seller@example.test', site_id: 'MLB', tags: ['normal', 'test_user'] })
     : Response.json({
     error: 'unauthorized',
     message: 'Unauthorized use of live credentials',
@@ -146,7 +146,7 @@ test('gateway diferencia recusa de credenciais e permissões sem registrar dados
     payer: { email: 'payer@example.test', identification: { number: '00000000000' } },
     token: 'card-token',
   }, { status: 401, headers: { 'x-request-id': requestId } }))
-  await assert.rejects(gateway.create({ id: randomUUID(), amount: 25 }, { itemName: 'Flores' }, {}), (error) => {
+  await assert.rejects(gateway.create({ id: randomUUID(), amount: 25 }, { itemName: 'Flores' }, { payer: { email: ' Seller@Example.test ' } }), (error) => {
     assert.equal(error.status, 502)
     assert.equal(error.definitive, true)
     assert.equal(error.message.includes('private-token'), false)
@@ -156,9 +156,9 @@ test('gateway diferencia recusa de credenciais e permissões sem registrar dados
   assert.match(output, /HTTP 401/)
   assert.match(output, /"codes":\["300"\]/)
   assert.match(output, /mesmo ambiente/)
-  assert.match(output, /"tokenValid":true,"testUser":true/)
+  assert.match(output, /"tokenValid":true,"testUser":true,"accountSite":"MLB","payerIsSeller":true/)
   assert.match(output, new RegExp(requestId))
-  for (const secret of ['private-token', 'card-token', 'payer@example.test', '00000000000', 'seller@example.test']) {
+  for (const secret of ['private-token', 'card-token', 'payer@example.test', '00000000000', 'seller@example.test', 'Seller@Example.test']) {
     assert.equal(output.includes(secret), false)
   }
 })

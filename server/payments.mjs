@@ -60,7 +60,7 @@ export function verifySignature({ signature, requestId, dataId, secret }) {
 
 export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
   // Distinguishes an invalid token from a valid token whose operation was refused; logs only booleans.
-  async function checkToken() {
+  async function checkToken(payerEmail) {
     try {
       const response = await fetcher('https://api.mercadopago.com/users/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -69,12 +69,18 @@ export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
       if (response.status === 401) return { tokenValid: false }
       if (!response.ok) return {}
       const account = await response.json()
-      return { tokenValid: true, testUser: Array.isArray(account?.tags) && account.tags.includes('test_user') }
+      const normalize = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '')
+      return {
+        tokenValid: true,
+        testUser: Array.isArray(account?.tags) && account.tags.includes('test_user'),
+        accountSite: /^[A-Z]{3}$/.test(account?.site_id ?? '') ? account.site_id : undefined,
+        payerIsSeller: payerEmail === undefined ? undefined : normalize(payerEmail) === normalize(account?.email),
+      }
     } catch {
       return {}
     }
   }
-  async function request(path, options = {}) {
+  async function request(path, options = {}, payerEmail) {
     let response
     try {
       response = await fetcher(`https://api.mercadopago.com${path}`, {
@@ -96,7 +102,7 @@ export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
       const requestId = response.headers.get('x-request-id')
       console.error('Mercado Pago respondeu com HTTP', response.status, JSON.stringify({
         ...providerDiagnosis(body),
-        ...(response.status === 401 ? await checkToken() : {}),
+        ...(response.status === 401 ? await checkToken(payerEmail) : {}),
         requestId: /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(requestId ?? '') ? requestId : undefined,
       }))
       const error = new AppError(502, 'O Mercado Pago não confirmou a operação. Consulte o andamento antes de tentar novamente.')
@@ -117,7 +123,7 @@ export function createGateway(accessToken, notificationUrl, fetcher = fetch) {
           external_reference: donation.id,
           notification_url: notificationUrl,
         }),
-      })
+      }, form?.payer?.email)
     },
     get: (id) => request(`/v1/payments/${encodeURIComponent(id)}`),
     async find(reference) {
